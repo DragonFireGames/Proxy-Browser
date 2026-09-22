@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Pumpkin Smasher 2</title>
+    <meta property="og:title" content="Pumpkin Smasher 2"/>
+    <meta property="og:type" content="website"/>
+    <meta property="og:description" content="Smash pumpkins in this online multiplayer frenzy! You can become a Skeleton and coordinate with your teammates to destroy the pumpkins. Or you can take on the mantle of the Pumpkin Master and stratigically defend your objectives from the Skeletons."/>
+    <meta property="og:url" content="https://pumpkin-smasher-2.onrender.com/"/>
+    <meta property="og:image" content="https://pumpkin-smasher-2.onrender.com/assets/pumpkins/objective.png"/>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <script src="/socket.io/socket.io.js">
+    </script>
+    <!--<script src="client/lib/peerjs.min.js"></script>-->
+    <script src="client/lib/p5.js"></script>
+    <script src="client/lib/p5.dom.js"></script>
+    <script src="client/lib/p5.sound.js"></script>
+    <script src="client/lib/p5.touchgui.js"></script>
+    <link rel="stylesheet" type="text/css" href="client/style.css">
+    <meta charset="utf-8" />
+  </head>
+  <body>
+    <main> 
+    </main>
+    <div id="homeDis" class="display">
+      <input type="button" id="startBtn" class="menu" value="Start" onclick="homeDis.clickStart();">
+      <input type="button" id="hostBtn" class="menu" value="Host" onclick="homeDis.clickHost();">
+      <input type="button" id="joinBtn" class="menu" value="Join" onclick="homeDis.clickJoin();">
+      <input type="text" class="menu" id="username" placeholder="Username" maxlength="31" autocomplete="off" oninput="changeUsername();">
+      <input type="button" id="tutorialBtn" class="menu" value="Tutorial" onclick="homeDis.clickTutorial();">
+      <input type="button" id="instructionsBtn" class="menu" value="How to Play" onclick="homeDis.clickInstructions();">
+      <input type="button" id="settingsBtn" class="menu" value="Settings" onclick="homeDis.clickSettings();">
+    </div>
+    
+    <div id="settingsDis">
+      <input type="button" id="wardrobeBtn" class="menu settingBtn" value="Wardrobe" onclick="settingsDis.clickWardrobe();">
+      <input type="button" id="achievementBtn" class="menu settingBtn" value="Achievements" onclick="settingsDis.clickAchievements();">
+      <input type="button" id="statBtn" class="menu settingBtn" value="Statistics" onclick="settingsDis.clickStats();">
+      <input type="button" id="keybindBtn" class="menu settingBtn" value="Keybinds" onclick="settingsDis.clickKeybinds();">
+      <input type="button" id="displaySettingsBtn" class="menu settingBtn" value="Display" onclick="settingsDis.clickDisplay();">
+      <input type="button" id="miscBtn" class="menu settingBtn" value="Mischellaneous" onclick="settingsDis.clickMisc();">
+      <input type="button" id="returnBtn" class="menu return" value="Return" onclick="settingsDis.clickReturn();">
+    </div>
+    
+    <div id="wardrobeDis">
+      <div id="wardrobe">
+        <div class="hat selected" id="hat_" onclick="wardrobeDis.selectHat('')">
+        </div>
+      </div>
+      <input type="button" id="wardrobeReturnBtn" class="menu return" value="Return" onclick="wardrobeDis.clickReturn();">
+    </div>
+    
+    <div id="achievementDis">
+      <div id="achievementList" class="panel">
+      </div>
+      <input type="button" id="achievementReturnBtn" class="menu return" value="Return" onclick="achievementDis.clickReturn();">
+    </div>
+    
+    <div id="statDis">
+      <div id="stats" class="panel settings-panel">
+      </div>
+      <input type="button" id="statReturnBtn" class="menu return" value="Return" onclick="statDis.clickReturn();">
+    </div>
+    
+    <div id="keybindDis">
+      <div id="keybindPanel" class="panel settings-panel">
+      </div>
+      <input type="button" id="keybindReturnBtn" class="menu return" value="Return" onclick="keybindDis.clickReturn();">
+    </div>
+    
+    <div id="displayDis">
+      <div id="displayPanel" class="panel settings-panel">
+      </div>
+      <input type="button" id="displayReturnBtn" class="menu return" value="Return" onclick="displayDis.clickReturn();">
+    </div>
+    
+    <div id="miscDis">
+      <div id="miscPanel" class="panel settings-panel">
+      </div>
+      <input type="button" id="miscReturnBtn" class="menu return" value="Return" onclick="miscDis.clickReturn();">
+    </div>
+    
+    <div id="viewDis" class="display">
+      <input type="text" id="roomCode" class="menu" placeholder="Enter Room Code" maxlength="8" autocomplete="off" onkeydown="return /[\w\d]/i.test(event.key);" pattern="^([\w\d]{8}|)$">
+      <input type="button" id="enterBtn" class="menu" value="Enter" onclick="viewDis.clickEnter();">
+    </div>
+    
+    <div id="loading">
+      <p>Loading...</p>
+    </div>
+    
+    <iframe id="instructions" src="/instructions"></iframe>
+    
+    <div id="discordWidget">
+      <!-- <iframe src="https://discord.com/widget?id=1115522694738346095&theme=dark" id="onlineMembers" allowtransparency="true" frameborder="0" sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"></iframe>
+      <widgetbot id="widgetBot"></widgetbot>
+      
+      <script src="https://cdn.jsdelivr.net/npm/@widgetbot/html-embed"></script> -->
+    </div>
+    <!--<embed src="https://pumpkin-smasher-discord-bot.onrender.com" style="visibility: hidden;">-->
+    <script src="client/sketch.js"></script>
+  </body>
+</html>

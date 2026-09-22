@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navigation & Popup Simulation Matrix</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.5;
+            padding: 20px;
+            color: #333;
+            background-color: #f9f9f9;
+        }
+        h1, h2 { color: #111; }
+        .section {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 12px;
+            margin-top: 10px;
+        }
+        button {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            text-align: left;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #0052a3; }
+        button.danger { background-color: #cc3333; }
+        button.danger:hover { background-color: #a32929; }
+        iframe {
+            width: 100%;
+            height: 200px;
+            border: 2px dashed #ccc;
+            margin-top: 10px;
+            background: #fff;
+        }
+        code {
+            background: #eee;
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Navigation &amp; Redirect Simulation Matrix</h1>
+    <p>This page simulates various methods web applications use to redirect frames, break out of frames, or trigger popups.</p>
+
+    <!-- SECTION 1: Standard Current Frame Redirects -->
+    <div class="section">
+        <h2>1. Standard Current Frame Redirects (Same Frame)</h2>
+        <p>Methods targeting the immediate window execution context.</p>
+        <div class="grid">
+            <button onclick="window.location.href='https://example.com'">window.location.href</button>
+            <button onclick="window.location.assign('https://example.com')">window.location.assign()</button>
+            <button onclick="window.location.replace('https://example.com')">window.location.replace() (No History)</button>
+            <button onclick="window.location='https://example.com'">window.location string assignment</button>
+            <button onclick="document.location.href='https://example.com'">document.location.href</button>
+            <button onclick="window.navigate('https://example.com')">window.navigate() (Legacy IE)</button>
+        </div>
+    </div>
+
+    <!-- SECTION 2: Frame-Breaking / Top-Level Navigation -->
+    <div class="section">
+        <h2>2. Frame-Breaking / Top-Level Redirects</h2>
+        <p>Methods explicitly targeting the outermost window (<code>_top</code>) or parent context.</p>
+        <div class="grid">
+            <button class="danger" onclick="window.top.location.href='https://example.com'">window.top.location.href</button>
+            <button class="danger" onclick="window.parent.location.href='https://example.com'">window.parent.location.href</button>
+            <button class="danger" onclick="window.top.location.replace('https://example.com')">window.top.location.replace()</button>
+            <button class="danger" onclick="let a = document.createElement('a'); a.href='https://example.com'; a.target='_top'; a.click();">DOM Anchor with target="_top"</button>
+            <button class="danger" onclick="let a = document.createElement('a'); a.href='https://example.com'; a.target='_parent'; a.click();">DOM Anchor with target="_parent"</button>
+        </div>
+    </div>
+
+    <!-- SECTION 3: Popups and New Windows -->
+    <div class="section">
+        <h2>3. Popups &amp; New Windows</h2>
+        <p>Methods requesting a completely new tab, window, or unlinked background tab.</p>
+        <div class="grid">
+            <button onclick="window.open('https://example.com', '_blank')">window.open(_blank)</button>
+            <button onclick="window.open('https://example.com', 'popup', 'width=600,height=400')">window.open() with Features (Popup)</button>
+            <button onclick="let a = document.createElement('a'); a.href='https://example.com'; a.target='_blank'; a.click();">DOM Anchor with target="_blank"</button>
+            <button onclick="let a = document.createElement('a'); a.href='https://example.com'; a.target='_blank'; a.rel='noopener noreferrer'; a.click();">DOM Anchor (noopener noreferrer)</button>
+        </div>
+    </div>
+
+    <!-- SECTION 4: Declarative / Async Redirect Simulation -->
+    <div class="section">
+        <h2>4. Declarative &amp; Delayed Simulation</h2>
+        <p>Simulates background, declarative, or asynchronous interception paths.</p>
+        <div class="grid">
+            <button onclick="setTimeout(() => { window.location.href = 'https://example.com'; }, 2000)">Delayed Redirect (2s setTimeout)</button>
+            <button onclick="injectMetaRefresh()">Inject &lt;meta http-equiv="refresh"&gt;</button>
+            <button onclick="triggerFormSubmit('_self')">Form Submit (_self)</button>
+            <button class="danger" onclick="triggerFormSubmit('_top')">Form Submit (_top)</button>
+        </div>
+    </div>
+
+    <!-- SECTION 5: Embedded Inline Testing Environment (Iframe) -->
+    <div class="section">
+        <h2>5. Nested Testing Sandbox (Iframe)</h2>
+        <p>Below is an inline frame containing a mirrored test harness. Use it to observe how <b>Frame-Breaking</b> buttons behave when trapped inside a sub-frame.</p>
+        
+        <iframe id="sandbox-iframe" title="Sandbox Testing Iframe"></iframe>
+    </div>
+
+    <script>
+        // Helper function to inject a meta refresh element into the head
+        function injectMetaRefresh() {
+            alert('Injecting meta refresh tag. Redirecting in 1 second...');
+            const meta = document.createElement('meta');
+            meta.httpEquiv = "refresh";
+            meta.content = "1;url=https://example.com";
+            document.head.appendChild(meta);
+        }
+
+        // Helper function to generate and submit a dynamic form
+        function triggerFormSubmit(targetAttribute) {
+            const form = document.createElement('form');
+            form.method = 'GET';
+            form.action = 'https://example.com';
+            form.target = targetAttribute;
+            document.body.appendChild(form);
+            form.submit();
+            document.body.removeChild(form);
+        }
+
+        // Self-populate the iframe with a miniature version of this suite for quick testing
+        const frame = document.getElementById('sandbox-iframe');
+        var srcdoc = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { font-family: sans-serif; font-size: 12px; padding: 10px; background: #f0f4f8; }
+                    button { display: block; width: 100%; margin: 4px 0; padding: 6px; font-size: 11px; cursor: pointer; text-align: left;}
+                    .danger { background: #ffdddd; border: 1px solid #cc0000; color: #cc0000; font-weight: bold; }
+                </style>
+            </head>
+            <body>
+                <b>Inside Iframe Context</b>
+                <button onclick="window.location.href='https://example.com'">Standard: window.location.href (Stays in iframe)</button>
+                <button class="danger" onclick="window.top.location.href='https://example.com'">Frame-Breaker: window.top.location.href</button>
+                <button class="danger" onclick="parent.location.reload()">Frame-Breaker: parent.location reload</button>
+                <button onclick="window.open('https://example.com', '_blank')">Popup: window.open(_blank)</button>
+            </body>
+            </html>
+        `;
+        // frame.srcdoc = srcdoc;
+        const iframeDoc = frame.contentWindow.document;
+        iframeDoc.open();
+        iframeDoc.write(srcdoc);
+        iframeDoc.close();
+    </script>
+</body>
+</html>

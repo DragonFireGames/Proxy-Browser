@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Native ES Modules Test Suite</title>
+</head>
+<body>
+    <h1>Native ES Module Test Suite</h1>
+    <div id="log">Running tests...</div>
+    <script type="module" src="./modules/main.js"></script>
+    <script>
+        const x = 0, y = 2;
+        class Foo {
+            constructor() {}
+        }
+    </script>
+    <script>
+        console.log(x);
+        console.log(Foo);
+    </script>
+</body>
+</html>
