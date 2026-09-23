@@ -68,8 +68,17 @@
     }
   };
 
+  function getPageBaseUrl(page) {
+    if (page && page.location && page.location.url === "about:srcdoc") {
+      try {
+        if (page.parent && page.parent !== false && page.parent.location && page.parent.location.url) return page.parent.location.url;
+      } catch (e) {}
+    }
+    return page?.location?.url || "http://localhost:3000/";
+  }
+
   async function preprocessHtml(rawHtml, page) {
-    let pageUrl = page.location.url;
+    let pageUrl = getPageBaseUrl(page);
     let dynamicBaseOrigin = page.location.origin;
 
     const parser = new DOMParser();
@@ -265,12 +274,14 @@
     if (processHtml) processedHtml = await preprocessHtml(rawHtml,page);
     else processedHtml = rawHtml;
 
-    const runtimeInterceptor = createRuntimeInterceptor(page.location.url, page.location.origin);
+    const documentUrl = page.location.url;
+    const baseUrl = getPageBaseUrl(page);
+    const runtimeInterceptor = createRuntimeInterceptor(documentUrl, page.location.origin, undefined, baseUrl);
 
     let finalHtml = processedHtml;
 
     if (finalHtml.includes('<head>')) {
-      finalHtml = finalHtml.replace('<head>',`<head><base href="${page.location.url}"><script>${runtimeInterceptor}<\/script>`);
+      finalHtml = finalHtml.replace('<head>',`<head><base href="${baseUrl}"><script>${runtimeInterceptor}<\/script>`);
     } else {
       finalHtml = runtimeInterceptor+finalHtml;
     }
@@ -280,7 +291,8 @@
 
   var acornParseOptions = {
     ecmaVersion: 'latest',
-    allowReturnOutsideFunction: true
+    allowReturnOutsideFunction: true,
+    allowAwaitOutsideFunction: true
   };
 
   function parseCode(code, sourceType = 'script') {
@@ -974,7 +986,7 @@
     if (typeof baseUrl === 'object' && baseUrl.network) {
       const page = baseUrl;
       baseOrigin = page.location.origin;
-      baseUrl = page.location.url;
+      baseUrl = getPageBaseUrl(page);
       networkRequest = page.network.request.bind(page.network);
       createDataUri = createDataUri || window.createDataUri || window.__createDataUri || globalsCreateDataUri;
     }
@@ -1110,8 +1122,9 @@
   /*
    * createRuntimeInterceptor intentionally left as-is.
    */
-  function createRuntimeInterceptor(source_url, source_origin, name = "about:srcdoc") {
-    var interceptorFunction = function(BASE_ORIGIN, CURRENT_PAGE_URL) { 
+  function createRuntimeInterceptor(source_url, source_origin, name = "about:srcdoc", base_url) {
+    var interceptorFunction = function(BASE_ORIGIN, CURRENT_PAGE_URL, DOCUMENT_URL) { 
+      DOCUMENT_URL = DOCUMENT_URL || CURRENT_PAGE_URL;
       if (window.__windowProxy) return;
 
       if (!window.frameElement.pageEmulator) {
@@ -1146,7 +1159,12 @@
         if (!__elemWindow) return;
         if (__elemWindow.__windowProxy) return __elemWindow.__windowProxy;
         var PATH_URL = new URL(__elem.getAttribute('src') || "about:srcdoc", BASE_ORIGIN);
-        var __interceptorCode = window.__usefulHelpers.createRuntimeInterceptor(PATH_URL.href, BASE_ORIGIN);
+        var __childPage = __elemWindow.__pageEmulator || __elem.pageEmulator || null;
+        var __baseUrl = PATH_URL.href;
+        try {
+          if (/^about:srcdoc$/i.test(PATH_URL.href) && __childPage?.parent?.location?.url) __baseUrl = __childPage.parent.location.url;
+        } catch (e) {}
+        var __interceptorCode = window.__usefulHelpers.createRuntimeInterceptor(PATH_URL.href, BASE_ORIGIN, undefined, __baseUrl);
         return (function(window, document){
           with (window) {
             eval(__interceptorCode);
@@ -1194,7 +1212,7 @@
       }
 
       function __getScriptFileName(__scriptFileName) {
-        try {__scriptFileName = __scriptFileName || new URL(document.currentScript.getAttribute('data-raw-src'),BASE_ORIGIN).href;} catch(e) {__scriptFileName = CURRENT_PAGE_URL;};
+        try {__scriptFileName = __scriptFileName || new URL(document.currentScript.getAttribute('data-raw-src'),BASE_ORIGIN).href;} catch(e) {__scriptFileName = DOCUMENT_URL;};
         return __scriptFileName;
       }
       function __createModuleControls(__scriptFileName) {
@@ -1811,9 +1829,13 @@
           }
         });
 
-        // 1. Override the native click method on anchors to catch programmatic a.click()
+        // Catch file input activation before the native file picker can open.
         const nativeElementClick = HTMLElement.prototype.click;
         HTMLElement.prototype.click = function() {
+          if (this.tagName === 'INPUT' && String(this.getAttribute('type') || '').toLowerCase() === 'file') {
+            if (!this.disabled) void sendAsyncEvent('upload',this).catch(() => {});
+            return;
+          }
           if (this.tagName === 'A') {
             const href = this.getAttribute('href');
             if (href) {
@@ -1847,6 +1869,13 @@
         };
 
         addEventListener(document, 'click', function(e) {
+          const fileInput = e.target.closest('input[type=\"file\"]');
+          if (fileInput) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!fileInput.disabled) void sendAsyncEvent('upload',fileInput).catch(() => {});
+            return;
+          }
           const link = e.target.closest('a');
           if (link && link.dataset.isInternalDownload) {
             return; 
@@ -1875,8 +1904,8 @@
                 e.preventDefault();
                 e.stopPropagation();
                 try {
-                  await sendAsyncEvent('download',resolved);
-                } catch(e) { console.error('Download via fetch failed:', err); };
+                  await sendAsyncEvent('download',resolved,anchor.getAttribute('download') || '');
+                } catch(e) { console.error('Download via fetch failed:', e); };
               })();
               const target = (anchor.getAttribute('target') || '').toLowerCase();
               if (target === '_top') {
@@ -2668,7 +2697,7 @@
         const oldGetEntriesByType = performance.getEntriesByType;
         performance.getEntriesByType = function() {
           var value = oldGetEntriesByType.apply(this,arguments);
-          for (var i in value) value[i].name = CURRENT_PAGE_URL;
+          for (var i in value) value[i].name = DOCUMENT_URL;
           return value;
         }
 
@@ -2814,21 +2843,21 @@
         // history & location
         const virtualLocation = Object.create(Location.prototype);
         Object.assign(virtualLocation, {
-          href: CURRENT_PAGE_URL,
+          href: DOCUMENT_URL,
           origin: BASE_ORIGIN,
-          protocol: new URL(CURRENT_PAGE_URL).protocol,
-          host: new URL(CURRENT_PAGE_URL).host,
-          hostname: new URL(CURRENT_PAGE_URL).hostname,
-          pathname: new URL(CURRENT_PAGE_URL).pathname,
-          search: new URL(CURRENT_PAGE_URL).search,
-          hash: new URL(CURRENT_PAGE_URL).hash,
+          protocol: new URL(DOCUMENT_URL).protocol,
+          host: new URL(DOCUMENT_URL).host,
+          hostname: new URL(DOCUMENT_URL).hostname,
+          pathname: new URL(DOCUMENT_URL).pathname,
+          search: new URL(DOCUMENT_URL).search,
+          hash: new URL(DOCUMENT_URL).hash,
           assign: function(newUrl) { sendEvent('navigate', newUrl, true); },
           replace: function(newUrl) { sendEvent('navigate', newUrl, false); },
-          reload: function() { sendEvent('navigate', CURRENT_PAGE_URL, false); },
-          toString: function() { return CURRENT_PAGE_URL; }
+          reload: function() { sendEvent('navigate', DOCUMENT_URL, false); },
+          toString: function() { return DOCUMENT_URL; }
         });
         Object.defineProperty(virtualLocation, 'href', {
-          get: function() { return CURRENT_PAGE_URL; },
+          get: function() { return DOCUMENT_URL; },
           set: function(u) { return this.assign(u); }
         });
         Object.defineProperty(virtualLocation, Symbol.toStringTag, {
@@ -2845,7 +2874,7 @@
         });
 
         Object.defineProperty(PerformanceNavigationTiming.prototype, 'name', {
-          value: CURRENT_PAGE_URL,
+          value: DOCUMENT_URL,
           enumerable: true,
           configurable: true
         });
@@ -2881,8 +2910,8 @@
             // Force document.location to return the virtual location object
             if (prop === 'location') return virtualLocation;
             if (prop === 'referrer') return '';
-            if (prop === 'documentURI') return CURRENT_PAGE_URL;
-            if (prop === 'URL') return CURRENT_PAGE_URL;
+            if (prop === 'documentURI') return DOCUMENT_URL;
+            if (prop === 'URL') return DOCUMENT_URL;
             if (prop === 'domain') return new URL(CURRENT_PAGE_URL).hostname;
 
             // --- Intercept document.open() to prevent context wiping ---
@@ -3219,7 +3248,14 @@
         }, __thisArg, [__windowProxy, __windowProxy, __windowProxy, __windowProxy.parent, __windowProxy.top, __windowProxy.location, __windowProxy.document]);
       };
     }
-    return `(${interceptorFunction.toString()})("${source_origin}","${source_url}");//# sourceURL=${name}`;
+    return `(${interceptorFunction.toString()})("${source_origin}","${base_url || source_url}","${source_url}");//# sourceURL=${name}`;
+  }
+
+  function createPageNetwork(network) {
+    if (!(network instanceof Network)) return network || new Network();
+    var pageNetwork = new Network();
+    pageNetwork.endpoints = network.endpoints;
+    return pageNetwork;
   }
 
   class PageEmulator {
@@ -3246,7 +3282,7 @@
 
       this.history = history || [];
       this.historyIndex = -1;
-      this.network = network || new Network();
+      this.network = createPageNetwork(network);
 
       this.parent = false;
       this.children = [];
@@ -3315,15 +3351,14 @@
     }
 
     interceptEvent(event, callback, options) {
-      // event could be 'contextmenu'
-      // event could be 'download'
-      // event could be 'navigate'
-      // etc...
       this.eventInterceptors[event] = this.eventInterceptors[event] || [];
-      this.eventInterceptors[event].push({
-        callback,
-        options
-      });
+      this.eventInterceptors[event].push({callback,options});
+      return callback;
+    }
+    removeEventListener(event, callback) {
+      var list = this.eventInterceptors[event];
+      if (!list) return;
+      this.eventInterceptors[event] = list.filter(item => item.callback !== callback);
     }
 
     addEndpoint(endpoint) {
