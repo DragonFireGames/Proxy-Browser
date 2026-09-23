@@ -99,35 +99,8 @@ body {
   white-space: nowrap; transition: all 0.15s ease; border: 1px solid transparent;
 }
 .bookmark-btn:hover { background: #35373c; color: #ffffff; border-color: #404249; }
-.bookmark-favicon { width: 14px; height: 14px; min-width: 14px; min-height: 14px; max-width: 14px; max-height: 14px; object-fit: contain; flex: none; display: block; }
-
-.download-item { display:flex; gap:10px; padding:10px 12px; border-bottom:1px solid #2d2f34; }
-.download-item:last-child { border-bottom:none; }
-.download-item-icon { width:28px; height:28px; flex:none; display:flex; align-items:center; justify-content:center; color:#8b949e; }
-.download-preview-thumb { width:24px; height:24px; border-radius:2px; object-fit:cover; border:1px solid #3a3d43; background:#16171a; }
-.download-item-main { min-width:0; flex:1; }
-.download-item-top { display:flex; align-items:center; gap:8px; }
-.download-item-name { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#e5e7eb; font-size:11px; }
-.download-item-status { flex:none; color:#8b949e; font-size:10px; }
-.download-item-sub { margin-top:3px; color:#8b949e; font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.download-progress-track { margin-top:6px; height:3px; border-radius:3px; overflow:hidden; background:#303238; }
-.download-progress-bar { height:100%; background:#5865f2; transition:width .1s linear; }
 
 #main-viewport-area { flex: 1; display: flex; position: relative; overflow: hidden; }
-
-#browser-chrome-reveal {
-  position: fixed; top: 0; left: 0; right: 0; height: 6px;
-  z-index: 30000; display: none;
-}
-body.browser-chrome-fullscreen #browser-chrome-reveal { display: block; }
-body.browser-chrome-fullscreen #tab-strip,
-body.browser-chrome-fullscreen #nav-bar,
-body.browser-chrome-fullscreen #bookmarks-bar { display: none; }
-body.browser-chrome-fullscreen #browser-chrome-reveal:hover + #main-viewport-area {}
-body.browser-chrome-fullscreen.chrome-hover-reveal #tab-strip,
-body.browser-chrome-fullscreen.chrome-hover-reveal #nav-bar,
-body.browser-chrome-fullscreen.chrome-hover-reveal #bookmarks-bar { display: flex; }
-
 #viewport-container { flex: 1; position: relative; background: #ffffff; height: 100%; }
 .tab-iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; display: none; }
 .tab-iframe.active { display: block; }
@@ -137,6 +110,71 @@ body.browser-chrome-fullscreen.chrome-hover-reveal #bookmarks-bar { display: fle
   width: 0%; transition: width 0.2s ease, opacity 0.3s ease; z-index: 100;
   box-shadow: 0 0 8px #5865f2;
 }
+
+/* DevTools Resizer & Panel */
+#devtools-resizer {
+  width: 5px; background: #2b2d31; cursor: col-resize; transition: background 0.15s;
+  z-index: 20; flex-shrink: 0;
+}
+#devtools-resizer:hover, #devtools-resizer.active { background: #5865f2; }
+
+#devtools-panel {
+  width: 480px; max-width: 85vw; min-width: 320px;
+  background: #1e1f22; border-left: 1px solid #2b2d31;
+  display: flex; flex-direction: column; flex-shrink: 0;
+  font-size: 12px; color: #dbdee1; height: 100%; z-index: 10;
+}
+#devtools-panel.hidden { display: none; }
+
+.dt-tab {
+  padding: 5px 10px; border-radius: 4px 4px 0 0; font-size: 11px; font-weight: 500; color: #949ba4;
+  cursor: pointer; transition: all 0.15s ease; border: none; background: transparent;
+  display: flex; align-items: center; gap: 4px; border-bottom: 2px solid transparent; white-space: nowrap;
+}
+.dt-tab:hover { color: #ffffff; background: rgba(255, 255, 255, 0.05); }
+.dt-tab.active { color: #5865f2; border-bottom-color: #5865f2; background: rgba(88, 101, 242, 0.1); font-weight: 600; }
+
+/* User Custom Console Output CSS Rules */
+.log { display: inline; line-height: 1.4; vertical-align: top; margin: 0; padding: 0; font-family: monospace; user-select: text; }
+.log-number { color: #61afef; }
+.log-string { color: #98c379; white-space: pre-wrap; word-break: break-all; }
+.log-boolean { color: #d19a66; }
+.log-null, .log-undefined, .log-empty { color: #7f848e; font-style: italic; }
+.log-property { color: #abb2bf; }
+.log-class { color: #e5c07b; font-weight: bold; }
+.log-function { color: #e06c75; }
+.log-function-source { color: #7f848e; font-size: 11px; margin-top: 2px; }
+.log-dropdown { display: inline-block; margin: 0 4px; }
+.log-html { color: #98c379; font-weight: 500; word-break: break-all; }
+.log-command { color: #61afef; font-weight: 600; cursor: pointer; }
+.log-command:hover { text-decoration: underline; }
+.log-error { color: #f44747; background: rgba(244, 71, 71, 0.12); padding: 3px 6px; border-radius: 4px; display: block; border-left: 3px solid #f44747; margin: 2px 0; }
+.log-warning { color: #e5c07b; background: rgba(229, 192, 123, 0.12); padding: 3px 6px; border-radius: 4px; display: block; border-left: 3px solid #e5c07b; margin: 2px 0; }
+.log-details { display: inline-block; margin: 0 4px 0 0; }
+.log-promise { color: #c678dd; font-style: italic; }
+.log-circular, .log-promise-rejected { color: #f44747; font-style: italic; }
+.log-url { text-decoration: underline; cursor: pointer; color: #61afef; }
+.log-url:hover { font-weight: bold; }
+.log-line { border-bottom: 1px solid rgba(255, 255, 255, 0.04); padding: 4px 0; word-wrap: break-word; font-family: monospace; font-size: 11px; }
+
+/* DOM Tree Inspector Styles */
+.dom-node-container { margin-left: 12px; display: block; }
+.dom-node {
+  font-family: monospace; font-size: 11px; line-height: 1.6; padding: 1px 4px;
+  border-radius: 3px; cursor: pointer; display: flex; align-items: flex-start;
+}
+.dom-node-content { flex: 1; word-wrap: break-word; }
+.dom-node:hover > .dom-node-content { background: #2b2d31; }
+.dom-node.selected > .dom-node-content { background: #383a40; color: #38bdf8; font-weight: 600; border-left: 2px solid #38bdf8; padding-left: 4px;}
+.dom-tag { color: #f43f5e; font-weight: 600; }
+.dom-attr-name { color: #fb923c; }
+.dom-attr-val { color: #38bdf8; user-select: text; }
+.dom-text { color: #e2e8f0; }
+.dom-caret {
+  width: 12px; text-align: center; color: #949ba4; display: inline-block;
+  cursor: pointer; user-select: none; margin-right: 2px; font-size: 9px;
+}
+.dom-caret:hover { color: #fff; }
 
 /* Custom Context Menu */
 #custom-context-menu {
@@ -169,6 +207,6 @@ body.browser-chrome-fullscreen.chrome-hover-reveal #bookmarks-bar { display: fle
 ::-webkit-scrollbar-thumb { background: #383a40; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #4e5058; }
 
-.bookmark-btn { user-select: none; }
-.bookmark-btn[draggable="true"] { cursor: grab; }
-.bookmark-btn.dragging { opacity: 0.45; cursor: grabbing; }
+/* Performance Tab Bars */
+.perf-bar { height: 16px; border-radius: 4px; margin-bottom: 4px; position: relative; }
+.perf-label { position: absolute; left: 8px; top: 0; font-size: 10px; line-height: 16px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.8); z-index: 2; }

@@ -745,8 +745,6 @@
           await server.ready;
         } catch (error) {
           server = null;
-          endpoint = null;
-          if (error && /^A PeerServer is already registered for /i.test(String(error.message || error))) return;
           throw error;
         }
       } finally {
