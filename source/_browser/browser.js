@@ -63,7 +63,6 @@ var bookmarks = [
   { title: "Test", url: "https://getsamplefiles.com/download/7z/sample-1.7z" },
   { title: "WatermelonKatana", url: "https://watermelonkatana.onrender.com" },
   { title: "Pathtracer", url: "https://dragonfiregames.github.io/WebGPU-Pathtracer/" },
-  { title: "Personalami", url: "https://pawchive.pw/patreon/user/262481" },
 ];
 
 function setStorageItem(key,value) {
