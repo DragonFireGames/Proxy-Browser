@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Proxy Site Browser & DevTools Sandbox</title>
     <script src="_browser/style/tailwind.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="_browser/style/fontawesome.css">
     <link rel="stylesheet" href="_browser/style/browser.css">
     <script src="_browser/external/acorn.js"></script>
     <script src="_browser/external/acorn-walk.js"></script>
     <script src="_browser/external/astring.js"></script>
     <script src="_browser/external/jszip.js"></script>
+    <script src="_browser/external/7zz.js"></script>
     <script src="_browser/external/peer.js"></script>
     <script src="_browser/lib/filesystem.js"></script>
     <script src="_browser/lib/network.js"></script>
@@ -19,10 +20,6 @@
     <script src="_browser/lib/endpoints/static.js"></script>
     <script src="_browser/lib/endpoints/peer.js" data-layer="new URLSearchParams(location.search).get('peerLayer');"></script>
     <script src="_browser/lib/keepalive.js"></script>
-    <script type="module">
-      import SevenZip from 'https://cdn.jsdelivr.net/npm/7z-wasm@1.2.0/+esm';
-      window.SevenZip = SevenZip;
-    </script>
   </head>
   <style>
     .dt-subtab { border: 0; background: transparent; color: #9ca3af; padding: 3px 7px; border-radius: 3px; font-size: 10px; cursor: pointer; white-space: nowrap; }
@@ -58,7 +55,9 @@
       </form>
 
       <!-- Toolbar Tools -->
-      <button class="nav-btn" id="btn-devtools" onclick="window.DevTools.ui.toggle()" title="Toggle DevTools (F12 / Ctrl+Shift+I)"><i class="fa-solid fa-terminal"></i></button>
+      <button class="nav-btn" id="btn-browser-fullscreen" onclick="toggleBrowserFullscreen()" title="Hide Browser Bar"><i class="fa-solid fa-expand"></i></button>
+      <button class="nav-btn" id="btn-devtools" onclick="browserDevTools.toggle()" title="Toggle DevTools (F12 / Ctrl+Shift+I)"><i class="fa-solid fa-terminal"></i></button>
+      <button class="nav-btn relative" id="btn-downloads" onclick="toggleDownloads()" title="Downloads"><i class="fa-solid fa-download"></i><span id="downloads-badge" class="hidden absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-blue-500 text-white text-[8px] leading-[14px] text-center"></span></button>
       <button class="nav-btn" onclick="openModal('history-modal')" title="Browsing History"><i class="fa-solid fa-clock-rotate-left"></i></button>
       <button class="nav-btn" onclick="openModal('settings-modal')" title="Proxy Settings"><i class="fa-solid fa-gear"></i></button>
     </div>
@@ -69,201 +68,23 @@
       <div id="bookmarks-list" class="flex gap-1 overflow-x-auto"></div>
     </div>
 
-    <!-- Main Viewport and Right-Side Chrome DevTools Panel -->
+    <div id="browser-chrome-reveal" aria-hidden="true"></div>
+
+    <!-- Main Viewport -->
     <div id="main-viewport-area">
       <div id="viewport-container">
         <div id="loading-progress"></div>
       </div>
 
-      <!-- Draggable Splitter Bar -->
-      <div id="devtools-resizer"></div>
-
-      <!-- DevTools Side Panel -->
-      <div id="devtools-panel" class="hidden">
-        <!-- DevTools Header Bar -->
-        <div class="flex items-center justify-between bg-[#111214] border-b border-[#2b2d31] px-2 pt-1 text-xs text-gray-300 flex-shrink-0">
-          <div class="flex items-center gap-1 overflow-x-auto" style="scrollbar-width: none;">
-            <button id="dt-tab-elements" onclick="window.DevTools.ui.switchTab('elements')" class="dt-tab active">
-              <i class="fa-solid fa-code text-xs"></i> Elements
-            </button>
-            <button id="dt-tab-console" onclick="window.DevTools.ui.switchTab('console')" class="dt-tab">
-              <i class="fa-solid fa-terminal text-xs"></i> Console 
-              <span id="dt-console-count" class="hidden text-[10px] bg-rose-600 text-white px-1.5 py-0.2 rounded-full font-bold">0</span>
-            </button>
-            <button id="dt-tab-sources" onclick="window.DevTools.ui.switchTab('sources')" class="dt-tab">
-              <i class="fa-solid fa-file-code text-xs"></i> Sources
-            </button>
-            <button id="dt-tab-network" onclick="window.DevTools.ui.switchTab('network')" class="dt-tab">
-              <i class="fa-solid fa-network-wired text-xs"></i> Network 
-              <span id="dt-network-count" class="hidden text-[10px] bg-indigo-600 text-white px-1.5 py-0.2 rounded-full font-bold">0</span>
-            </button>
-            <button id="dt-tab-performance" onclick="window.DevTools.ui.switchTab('performance')" class="dt-tab">
-              <i class="fa-solid fa-chart-line text-xs"></i> Performance
-            </button>
-            <button id="dt-tab-application" onclick="window.DevTools.ui.switchTab('application')" class="dt-tab">
-              <i class="fa-solid fa-database text-xs"></i> Application
-            </button>
-          </div>
-          <div class="flex items-center gap-1 flex-shrink-0 ml-2">
-            <button onclick="window.DevTools.ui.clearActive()" class="hover:text-white p-1 text-gray-400" title="Clear current view"><i class="fa-solid fa-ban text-xs"></i></button>
-            <button onclick="window.DevTools.ui.toggle()" class="hover:text-white p-1 text-gray-400" title="Close DevTools (F12)"><i class="fa-solid fa-xmark text-sm"></i></button>
-          </div>
-        </div>
-
-        <!-- 1. DevTools View: Elements / Live DOM Inspector -->
-        <div id="dt-view-elements" class="flex-1 hidden bg-[#1e1f22] overflow-hidden">
-          <div class="w-[55%] min-w-0 flex flex-col border-r border-[#383a40]">
-            <div class="flex items-center gap-2 bg-[#2b2d31] px-2 py-1.5 border-b border-[#383a40] text-[11px] flex-shrink-0">
-              <button onclick="window.DevTools.elements.togglePicker()" id="dt-pick-element" class="bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded text-[10px] font-semibold" title="Select an element from the page (Ctrl+Shift+C)">
-                <i class="fa-solid fa-crosshairs mr-1"></i> Select
-              </button>
-              <input id="dom-tree-filter" oninput="filterDomTree(this.value)" class="min-w-0 flex-1 bg-[#1e1f22] border border-gray-700 rounded px-2 py-1 text-[10px] text-gray-200 outline-none" placeholder="Filter DOM…" spellcheck="false">
-              <button onclick="window.DevTools.elements.refresh()" class="hover:text-white text-gray-400 px-1" title="Refresh DOM"><i class="fa-solid fa-rotate-right"></i></button>
-            </div>
-            <div id="dom-breadcrumbs" class="px-2 py-1 border-b border-[#383a40] bg-[#111214] text-[10px] font-mono text-gray-500 truncate flex-shrink-0"></div>
-            <div id="dom-tree-container" class="flex-1 overflow-auto p-2"></div>
-          </div>
-          <div id="element-details" class="w-[45%] min-w-0 flex flex-col bg-[#1e1f22] overflow-hidden">
-            <div id="element-summary" class="px-2 py-2 bg-[#111214] border-b border-[#383a40] text-[11px] text-gray-300 flex-shrink-0">Select an element to inspect it.</div>
-            <div class="flex items-center gap-1 px-2 py-1 border-b border-[#383a40] bg-[#2b2d31] flex-shrink-0">
-              <button id="element-detail-tab-html" onclick="window.DevTools.elements.switchDetailTab('html')" class="dt-subtab active">HTML</button>
-              <button id="element-detail-tab-styles" onclick="window.DevTools.elements.switchDetailTab('styles')" class="dt-subtab">Styles</button>
-              <button id="element-detail-tab-properties" onclick="window.DevTools.elements.switchDetailTab('properties')" class="dt-subtab">Properties</button>
-              <button id="element-detail-tab-attributes" onclick="window.DevTools.elements.switchDetailTab('attributes')" class="dt-subtab">Attributes</button>
-            </div>
-            <div id="element-detail-content" class="flex-1 overflow-auto min-h-0"></div>
-          </div>
-        </div>
-
-        <!-- 2. DevTools View: Console -->
-        <div id="dt-view-console" class="w-full flex-1 min-h-0 flex flex-col hidden bg-[#1e1f22] overflow-hidden">
-          <div class="w-full flex items-center gap-2 bg-[#2b2d31] px-3 py-1 border-b border-[#383a40] text-[11px] flex-shrink-0">
-            <span class="text-gray-400 font-semibold"><i class="fa-solid fa-filter mr-1"></i> Filter:</span>
-            <select id="consoleFilter" onchange="window.DevTools.console.filter()" class="bg-[#1e1f22] text-gray-200 rounded px-2 py-0.5 border border-gray-700 outline-none text-xs">
-              <option value="all">All Levels</option>
-              <option value="log">Logs</option>
-              <option value="warn">Warnings</option>
-              <option value="error">Errors</option>
-            </select>
-            <button onclick="window.DevTools.console.clear()" class="ml-auto text-xs text-gray-400 hover:text-white"><i class="fa-solid fa-trash mr-1"></i> Clear</button>
-          </div>
-          <div id="consoleOutput" class="w-full flex-1 min-h-0 overflow-y-auto p-2 font-mono text-xs space-y-1 min-h-0"></div>
-          <div class="w-full border-t border-[#383a40] bg-[#111214] p-2 flex items-end gap-2 flex-shrink-0 box-border">
-            <span class="text-indigo-400 font-bold font-mono text-sm flex-shrink-0">&gt;</span>
-            <textarea id="consoleInput" placeholder="" class="min-w-0 flex-1 bg-transparent text-gray-100 font-mono text-xs border-none outline-none resize-none min-h-[20px] max-h-[120px]" rows="1" spellcheck="false" onkeydown="window.DevTools.console.handleInput(event)" oninput="window.DevTools.console.setDraft(getActiveTab(),this.value);window.DevTools.console.resetHistory();this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'"></textarea>
-          </div>
-        </div>
-
-        <!-- 3. DevTools View: Sources / Original + Active -->
-        <div id="dt-view-sources" class="flex-1 hidden bg-[#1e1f22] overflow-hidden">
-          <div class="w-1/3 min-w-0 border-r border-[#383a40] flex flex-col bg-[#111214]">
-            <div class="p-1.5 border-b border-[#383a40] text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-              <span class="flex-1">Sources / Delivery Tree</span>
-              <button onclick="window.DevTools.sources.refresh()" class="text-gray-500 hover:text-white px-1" title="Refresh"><i class="fa-solid fa-rotate"></i></button>
-            </div>
-            <div class="p-1 border-b border-[#383a40]">
-              <input id="sources-filter" oninput="window.DevTools.sources.filter(this.value)" class="w-full bg-[#1e1f22] border border-gray-700 rounded px-2 py-1 text-[10px] text-gray-200 outline-none" placeholder="Search sources…" spellcheck="false">
-            </div>
-            <div class="flex items-center gap-1 px-1 py-1 border-b border-[#383a40]">
-              <button id="sources-mode-original" onclick="window.DevTools.sources.setMode('original')" class="dt-subtab active flex-1">Original</button>
-              <button id="sources-mode-active" onclick="window.DevTools.sources.setMode('active')" class="dt-subtab flex-1">Active</button>
-            </div>
-            <div id="sources-file-tree" class="flex-1 overflow-y-auto p-1 font-mono text-[10px]"></div>
-          </div>
-          <div class="flex-1 min-w-0 flex flex-col">
-            <div id="sources-current-file" class="px-2 py-1.5 border-b border-[#383a40] bg-[#2b2d31] text-[10px] font-mono text-indigo-300 truncate flex-shrink-0">Select a source…</div>
-            <div id="sources-source-info" class="px-2 py-1 border-b border-[#383a40] bg-[#111214] text-[10px] text-gray-500 truncate flex-shrink-0"></div>
-            <div id="sources-dependencies" class="hidden px-2 py-1 border-b border-[#383a40] bg-[#16171a] text-[9px] flex flex-col gap-1 max-h-12 overflow-auto flex-shrink-0"></div>
-            <div class="flex items-center gap-2 px-2 py-1 border-b border-[#383a40] bg-[#1a1b1e] flex-shrink-0">
-              <input id="sources-search" oninput="window.DevTools.sources.findInSource(this.value)" class="flex-1 bg-[#111214] border border-gray-700 rounded px-2 py-1 text-[10px] text-gray-200 outline-none" placeholder="Find in source…" spellcheck="false">
-              <button onclick="window.DevTools.sources.copyCurrent()" class="text-gray-400 hover:text-white text-[10px] px-1" title="Copy source"><i class="fa-regular fa-copy"></i></button>
-            </div>
-            <pre id="sources-editor" tabindex="0" class="flex-1 min-h-0 text-[11px] leading-relaxed font-mono" spellcheck="false"></pre>
-          </div>
-        </div>
-
-        <!-- 4. DevTools View: Network Viewer -->
-        <div id="dt-view-network" class="w-full h-full flex flex-col hidden bg-[#1e1f22] overflow-hidden">
-          <div class="w-full flex items-center gap-2 bg-[#2b2d31] px-2 py-1.5 border-b border-[#383a40] text-[11px] flex-shrink-0">
-            <div class="text-gray-300 font-semibold flex-shrink-0"><i class="fa-solid fa-network-wired mr-1 text-indigo-400"></i> Network</div>
-            <button id="network-record-toggle" onclick="window.DevTools.network.toggleRecording()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded text-[10px] font-semibold" title="Record network activity for this tab"><i class="fa-solid fa-circle mr-1"></i> Record</button>
-            <span id="network-record-status" class="text-gray-500 ml-0.5">Stopped</span>
-            <input id="network-filter" oninput="window.DevTools.network.render()" class="min-w-0 flex-1 bg-[#1e1f22] border border-gray-700 rounded px-2 py-1 text-[10px] text-gray-200 outline-none" placeholder="Filter requests…" spellcheck="false">
-            <select id="network-status-filter" onchange="window.DevTools.network.render()" class="bg-[#1e1f22] text-gray-200 rounded px-2 py-1 border border-gray-700 outline-none text-[10px]">
-              <option value="all">All</option>
-              <option value="pending">Pending</option>
-              <option value="2xx">2xx</option>
-              <option value="3xx">3xx</option>
-              <option value="4xx">4xx</option>
-              <option value="5xx">5xx</option>
-            </select>
-            <select id="network-type-filter" onchange="window.DevTools.network.render()" class="bg-[#1e1f22] text-gray-200 rounded px-2 py-1 border border-gray-700 outline-none text-[10px]">
-              <option value="all">All Types</option>
-            </select>
-            <button onclick="window.DevTools.network.clear()" class="hover:text-rose-400 text-gray-400 px-1" title="Clear network log"><i class="fa-solid fa-trash"></i></button>
-          </div>
-          <div id="network-waterfall" class="relative border-t border-b border-[#383a40] bg-[#151619] h-[88px] overflow-hidden font-mono text-[9px] flex-shrink-0"></div>
-          <div class="w-full flex-1 overflow-auto font-mono text-[10px] min-h-0">
-            <table class="w-full text-left border-collapse table-fixed">
-              <thead>
-                <tr class="bg-[#111214] text-gray-400 text-[10px] uppercase border-b border-gray-800 sticky top-0">
-                  <th class="p-2 truncate">Name / URL</th>
-                  <th class="p-2 w-14">Status</th>
-                  <th class="p-2 w-14">Method</th>
-                  <th class="p-2 w-24">Type</th>
-                  <th class="p-2 w-16 text-right">Size</th>
-                  <th class="p-2 w-16 text-right">Time</th>
-                </tr>
-              </thead>
-              <tbody id="network-log-body"></tbody>
-            </table>
-          </div>
-          <div id="network-detail-drawer" class="w-full hidden border-t border-gray-700 bg-[#111214] max-h-[45%] overflow-hidden font-mono flex-shrink-0 box-border flex flex-col"></div>
-        </div>
-
-        <!-- 5. DevTools View: Performance -->
-        <div id="dt-view-performance" class="flex-1 flex-col hidden bg-[#1e1f22] overflow-auto p-4">
-          <div class="flex justify-between items-center mb-4">
-            <h3 class="text-gray-300 font-semibold text-xs"><i class="fa-solid fa-stopwatch mr-1"></i> Page Load Timing</h3>
-            <button onclick="window.DevTools.performance.render()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 text-[10px] rounded font-semibold transition">Analyze Current Tab</button>
-          </div>
-          <div id="perf-metrics-container" class="space-y-3 font-mono text-xs">
-            <div class="text-gray-500 italic text-center py-10">Click "Analyze Current Tab" to view simulated metrics.</div>
-          </div>
-        </div>
-
-        <!-- 6. DevTools View: Application -->
-        <div id="dt-view-application" class="flex-1 flex hidden bg-[#1e1f22] overflow-hidden">
-          <div class="w-1/3 border-r border-[#383a40] bg-[#111214] flex flex-col">
-            <div class="p-2 border-b border-[#383a40] text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Storage</div>
-            <div class="flex-1 overflow-y-auto p-1 text-[11px] font-semibold text-gray-300 space-y-1">
-              <div class="cursor-pointer hover:bg-[#2b2d31] p-1.5 rounded flex items-center gap-2" onclick="window.DevTools.application.load('localStorage')"><i class="fa-solid fa-database text-indigo-400"></i> Local Storage</div>
-              <div class="cursor-pointer hover:bg-[#2b2d31] p-1.5 rounded flex items-center gap-2" onclick="window.DevTools.application.load('sessionStorage')"><i class="fa-solid fa-box text-emerald-400"></i> Session Storage</div>
-              <div class="cursor-pointer hover:bg-[#2b2d31] p-1.5 rounded flex items-center gap-2" onclick="window.DevTools.application.load('cookie')"><i class="fa-solid fa-cookie text-yellow-400"></i> Cookies</div>
-            </div>
-          </div>
-          <div class="flex-1 flex flex-col">
-            <div class="flex justify-between items-center bg-[#2b2d31] px-2 py-1.5 border-b border-[#383a40] text-[10px] font-semibold text-gray-300">
-              <span id="app-storage-title">Select a storage type</span>
-              <button onclick="window.DevTools.application.refresh()" class="text-gray-400 hover:text-white"><i class="fa-solid fa-rotate"></i></button>
-            </div>
-            <div class="flex-1 overflow-y-auto bg-[#1e1f22] font-mono text-xs">
-              <table class="w-full text-left border-collapse">
-                <thead>
-                  <tr class="bg-[#111214] text-gray-400 text-[10px] uppercase border-b border-gray-800">
-                    <th class="p-2 border-r border-gray-800 w-1/3">Key</th>
-                    <th class="p-2">Value</th>
-                  </tr>
-                </thead>
-                <tbody id="app-storage-body"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <div id="custom-context-menu"></div>
+    <div id="downloads-panel" class="hidden fixed top-[108px] right-3 z-[40000] w-[360px] max-w-[calc(100vw-24px)] rounded-lg border border-gray-700 bg-[#202124] shadow-2xl overflow-hidden">
+      <div class="flex items-center justify-between px-3 py-2 border-b border-gray-700">
+        <span class="text-xs font-semibold text-gray-200"><i class="fa-solid fa-download mr-2 text-gray-400"></i>Downloads</span>
+        <button class="text-[10px] text-gray-500 hover:text-gray-200" onclick="clearDownloads()">Clear history</button>
+      </div>
+      <div id="downloads-list" class="max-h-[360px] overflow-y-auto"></div>
+      <div id="downloads-empty" class="px-4 py-8 text-center text-xs text-gray-500">No downloads yet.</div>
+    </div>
     <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
     <!-- History Modal -->
@@ -316,6 +137,10 @@
             <input type="checkbox" id="setting-clear-devtools-reload" class="rounded bg-gray-800 border-gray-700" checked onchange="appSettings.clearDevToolsOnReload=this.checked">
             <label for="setting-clear-devtools-reload" class="text-gray-300">Clear Console & Network on reload</label>
           </div>
+          <div class="flex items-center gap-2 pt-2 border-t border-gray-800">
+            <input type="checkbox" id="setting-autodownload" class="rounded bg-gray-800 border-gray-700" checked>
+            <label for="setting-autodownload" class="text-gray-300">Automatically download files when ready</label>
+          </div>
           <div>
             <label class="block font-semibold mb-1 text-gray-300">Default Search Engine</label>
             <select id="setting-search-engine" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white outline-none">
@@ -331,7 +156,8 @@
       </div>
     </div>
 
-    <script src="_browser/console-syntax.js"></script>
+    <script src="_browser/console.js"></script>
+    <script src="_browser/devtools.js"></script>
     <script src="_browser/browser.js"></script>
     <script src="_browser/script.js"></script>
   </body>

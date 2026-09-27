@@ -16,10 +16,15 @@ class EventHandler {
   }
   addEventListener(event, callback, options) {
     this.eventListeners[event] = this.eventListeners[event] || [];
-    this.eventListeners[event].push({
-      callback,
-      options
-    });
+    this.eventListeners[event].push({callback,options});
+    return callback;
+  }
+  removeEventListener(event, callback) {
+    var list = this.eventListeners[event];
+    if (!list) return;
+    if (!callback) { delete this.eventListeners[event]; return; }
+    this.eventListeners[event] = list.filter(item => item.callback !== callback);
+    if (!this.eventListeners[event].length) delete this.eventListeners[event];
   }
 }
 
@@ -38,6 +43,7 @@ class Network extends EventHandler {
     return await this._requestObject(request,type);
   }
   async _requestObject(request,type) {
+    request.__original_url = request.url;
     request.request_type = type;
     this.dispatchEvent('requeststart',request,type);
     const response = await this.searchEndpoints(async function(endp) {
@@ -49,7 +55,13 @@ class Network extends EventHandler {
     });
     if (response) {
       response.source_url = request.url;
+      response.requested_url = request.__original_url || request.url;
       response.request_type = type;
+      if (type === 'import' || type === 'script[src]' || type === 'link[rel=stylesheet]' || type === 'link[rel="stylesheet"]') {
+        try {
+          Object.defineProperty(response,'__devtoolsSourceTextPromise',{value:response.clone().text().catch(()=>null),configurable:true});
+        } catch(e) {}
+      }
     }
     this.dispatchEvent('requestend',response,request,type);
     return response;
@@ -78,17 +90,16 @@ class Network extends EventHandler {
   }
   async searchEndpoints(callback) {
     await wait(1);
-    try {
-      for (var i = 0; i < this.endpoints.length; i++) {
-        var endp = this.endpoints[i];
-        if (!endp.enabled) continue;
+    for (var i = 0; i < this.endpoints.length; i++) {
+      var endp = this.endpoints[i];
+      if (!endp.enabled) continue;
+      try {
         var response = await callback.call(this, endp);
         if (!response) continue;
         return response;
+      } catch (e) {
+        console.log('[networkRequest] Endpoint error:', e && e.message || e);
       }
-    } catch (e) {
-      console.log('[networkRequest] URL/interceptor error:', e && e.message || e);
-      return null;
     }
     return;
   }

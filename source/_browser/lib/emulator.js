@@ -68,8 +68,17 @@
     }
   };
 
+  function getPageBaseUrl(page) {
+    if (page && page.location && page.location.url === "about:srcdoc") {
+      try {
+        if (page.parent && page.parent !== false && page.parent.location && page.parent.location.url) return page.parent.location.url;
+      } catch (e) {}
+    }
+    return page?.location?.url || "http://localhost:3000/";
+  }
+
   async function preprocessHtml(rawHtml, page) {
-    let pageUrl = page.location.url;
+    let pageUrl = getPageBaseUrl(page);
     let dynamicBaseOrigin = page.location.origin;
 
     const parser = new DOMParser();
@@ -199,16 +208,25 @@
         var srcdoc = el.getAttribute("srcdoc");
         if (!src && !srcdoc) srcdoc = `<html><head></head><body></body></html>`;
         if (src) el.setAttribute('data-raw-src',src);
-        if (srcdoc) el.setAttribute('data-raw-srcdoc',srcdoc);
+        if (srcdoc !== null && srcdoc !== undefined) el.setAttribute('data-raw-srcdoc',srcdoc);
         el.removeAttribute("src");
         el.removeAttribute("srcdoc");
         el.__sandboxed = true;
+        el.__iframeNavigationId = (el.__iframeNavigationId || 0) + 1;
+
+        page.sendEvent('iframe-create',{
+          iframe: el,
+          src: src,
+          srcdoc: srcdoc,
+          is_doc: !src,
+        });
 
         await page.sendAsyncEvent('iframe',{
           iframe: el,
           src: src,
           srcdoc: srcdoc,
           is_doc: !src,
+          navigationId: el.__iframeNavigationId,
         });
 
         return null;
@@ -265,12 +283,14 @@
     if (processHtml) processedHtml = await preprocessHtml(rawHtml,page);
     else processedHtml = rawHtml;
 
-    const runtimeInterceptor = createRuntimeInterceptor(page.location.url, page.location.origin);
+    const documentUrl = page.location.url;
+    const baseUrl = getPageBaseUrl(page);
+    const runtimeInterceptor = createRuntimeInterceptor(documentUrl, page.location.origin, undefined, baseUrl);
 
     let finalHtml = processedHtml;
 
     if (finalHtml.includes('<head>')) {
-      finalHtml = finalHtml.replace('<head>',`<head><base href="${page.location.url}"><script>${runtimeInterceptor}<\/script>`);
+      finalHtml = finalHtml.replace('<head>',`<head><base href="${baseUrl}"><script>${runtimeInterceptor}<\/script>`);
     } else {
       finalHtml = runtimeInterceptor+finalHtml;
     }
@@ -280,7 +300,8 @@
 
   var acornParseOptions = {
     ecmaVersion: 'latest',
-    allowReturnOutsideFunction: true
+    allowReturnOutsideFunction: true,
+    allowAwaitOutsideFunction: true
   };
 
   function parseCode(code, sourceType = 'script') {
@@ -974,7 +995,7 @@
     if (typeof baseUrl === 'object' && baseUrl.network) {
       const page = baseUrl;
       baseOrigin = page.location.origin;
-      baseUrl = page.location.url;
+      baseUrl = getPageBaseUrl(page);
       networkRequest = page.network.request.bind(page.network);
       createDataUri = createDataUri || window.createDataUri || window.__createDataUri || globalsCreateDataUri;
     }
@@ -1110,8 +1131,9 @@
   /*
    * createRuntimeInterceptor intentionally left as-is.
    */
-  function createRuntimeInterceptor(source_url, source_origin, name = "about:srcdoc") {
-    var interceptorFunction = function(BASE_ORIGIN, CURRENT_PAGE_URL) { 
+  function createRuntimeInterceptor(source_url, source_origin, name = "about:srcdoc", base_url) {
+    var interceptorFunction = function(BASE_ORIGIN, CURRENT_PAGE_URL, DOCUMENT_URL) { 
+      DOCUMENT_URL = DOCUMENT_URL || CURRENT_PAGE_URL;
       if (window.__windowProxy) return;
 
       if (!window.frameElement.pageEmulator) {
@@ -1146,7 +1168,12 @@
         if (!__elemWindow) return;
         if (__elemWindow.__windowProxy) return __elemWindow.__windowProxy;
         var PATH_URL = new URL(__elem.getAttribute('src') || "about:srcdoc", BASE_ORIGIN);
-        var __interceptorCode = window.__usefulHelpers.createRuntimeInterceptor(PATH_URL.href, BASE_ORIGIN);
+        var __childPage = __elemWindow.__pageEmulator || __elem.pageEmulator || null;
+        var __baseUrl = PATH_URL.href;
+        try {
+          if (/^about:srcdoc$/i.test(PATH_URL.href) && __childPage?.parent?.location?.url) __baseUrl = __childPage.parent.location.url;
+        } catch (e) {}
+        var __interceptorCode = window.__usefulHelpers.createRuntimeInterceptor(PATH_URL.href, BASE_ORIGIN, undefined, __baseUrl);
         return (function(window, document){
           with (window) {
             eval(__interceptorCode);
@@ -1194,7 +1221,7 @@
       }
 
       function __getScriptFileName(__scriptFileName) {
-        try {__scriptFileName = __scriptFileName || new URL(document.currentScript.getAttribute('data-raw-src'),BASE_ORIGIN).href;} catch(e) {__scriptFileName = CURRENT_PAGE_URL;};
+        try {__scriptFileName = __scriptFileName || new URL(document.currentScript.getAttribute('data-raw-src'),BASE_ORIGIN).href;} catch(e) {__scriptFileName = DOCUMENT_URL;};
         return __scriptFileName;
       }
       function __createModuleControls(__scriptFileName) {
@@ -1346,33 +1373,60 @@
         // --- Nested Frame / Embed Interception ---
         async function setupNestedFrame(frameEl) {
           if (frameEl.__sandboxed) return;
-          frameEl.__sandboxed = true;
 
-          if (frameEl.tagName.toLowerCase() === 'iframe') {
-            const currentSrcDoc = frameEl.getAttribute('srcdoc');
-            const rawSrc = frameEl.getAttribute('src') || frameEl.getAttribute('data-raw-src');
-            if (currentSrcDoc) {
-              frameEl.removeAttribute("srcdoc");
-              await sendAsyncEvent('iframe',{
-                iframe: frameEl,
-                srcdoc: currentSrcDoc,
-                is_doc: true,
-              });
-            } else if (rawSrc && !rawSrc.startsWith('javascript:')) {
-              frameEl.removeAttribute("src");
-              await sendAsyncEvent('iframe',{
-                iframe: frameEl,
-                src: rawSrc,
-                is_doc: false,
-              });
-            } else {
-              await sendAsyncEvent('iframe',{
-                iframe: frameEl,
-                srcdoc: `<html><head></head><body></body></html>`,
-                is_doc: true,
-              });
-            }
-          }// else if (frameEl.tagName.toLowerCase() === 'embed') {
+          if (frameEl.tagName.toLowerCase() !== 'iframe') return;
+
+          frameEl.__sandboxed = true;
+          frameEl.__iframeNavigationId = (frameEl.__iframeNavigationId || 0) + 1;
+          const navigationId = frameEl.__iframeNavigationId;
+
+          const hasSrcDoc = frameEl.hasAttribute('data-raw-srcdoc') || frameEl.hasAttribute('srcdoc');
+          const hasRawSrc = frameEl.hasAttribute('data-raw-src') || frameEl.hasAttribute('src');
+          const currentSrcDoc = hasSrcDoc ? (frameEl.getAttribute('srcdoc') ?? frameEl.getAttribute('data-raw-srcdoc')) : null;
+          const rawSrc = hasRawSrc ? (frameEl.getAttribute('data-raw-src') ?? frameEl.getAttribute('src')) : null;
+
+          if (hasSrcDoc) {
+            frameEl.removeAttribute("src");
+            frameEl.removeAttribute("srcdoc");
+            sendEvent('iframe-create',{
+              iframe: frameEl,
+              srcdoc: currentSrcDoc,
+              is_doc: true,
+            });
+            await sendAsyncEvent('iframe',{
+              iframe: frameEl,
+              srcdoc: currentSrcDoc,
+              is_doc: true,
+              navigationId,
+            });
+          } else if (hasRawSrc && rawSrc && !rawSrc.startsWith('javascript:')) {
+            frameEl.removeAttribute("src");
+            sendEvent('iframe-create',{
+              iframe: frameEl,
+              src: rawSrc,
+              is_doc: false,
+            });
+            await sendAsyncEvent('iframe',{
+              iframe: frameEl,
+              src: rawSrc,
+              is_doc: false,
+              navigationId,
+            });
+          } else {
+            frameEl.removeAttribute("src");
+            frameEl.removeAttribute("srcdoc");
+            sendEvent('iframe-create',{
+              iframe: frameEl,
+              is_doc: true,
+            });
+            await sendAsyncEvent('iframe',{
+              iframe: frameEl,
+              srcdoc: `<html><head></head><body></body></html>`,
+              is_doc: true,
+              navigationId,
+            });
+          }
+        }// else if (frameEl.tagName.toLowerCase() === 'embed') {
           //   const rawSrc = frameEl.getAttribute('src') || frameEl.getAttribute('data-raw-src');
           //   if (!rawSrc) return;
           //   const res = await pageEmulator.network.request(targetUrl, BASE_ORIGIN, {}, 'embed');
@@ -1383,7 +1437,6 @@
           //     frameEl.setAttribute('data-raw-src', rawSrc);
           //   }
           // }
-        }
 
         // Target rules for dynamic element checks
         const ATTRIBUTE_MAP = [
@@ -1627,12 +1680,44 @@
           })(linkprop);
 
           if (tagName == "iframe") {
+            const ensureFrameEmulator = () => {
+              if (elem.pageEmulator) return elem.pageEmulator;
+
+              const pageId = elem.getAttribute('data-page-id');
+              if (pageId && window.__pageRegistry?.[pageId]) {
+                const knownPage = window.__pageRegistry[pageId];
+                knownPage.iframe = elem;
+                elem.pageEmulator = knownPage;
+                elem.usefulHelpers = window.__pageRegistry.__usefulHelpers;
+                if (knownPage.tab) {
+                  knownPage.tab.iframe = elem;
+                  knownPage.tab.frameElement = elem;
+                }
+                return knownPage;
+              }
+
+              return sendEvent('iframe-create',{iframe: elem}) || elem.pageEmulator || null;
+            };
+
+            // A newly-created dynamic iframe has no data-page-id yet. Claim it now,
+            // while preserving the registry-rebind path for preprocessed/static iframes.
+            if (!elem.getAttribute('data-page-id')) ensureFrameEmulator();
+
             Object.defineProperty(elem,'contentWindow',{
-              get: () => window.__runSyncInterceptor(elem,getOldContextWindow(elem)),
+              get: () => {
+                ensureFrameEmulator();
+                const contextWindow = getOldContextWindow(elem);
+                return window.__runSyncInterceptor(elem,contextWindow);
+              },
               set: () => {}
             });
             Object.defineProperty(elem,'contentDocument',{
-              get: () => window.__runSyncInterceptor(elem,getOldContextWindow(elem)).document,
+              get: () => {
+                ensureFrameEmulator();
+                const contextWindow = getOldContextWindow(elem);
+                const proxyWindow = window.__runSyncInterceptor(elem,contextWindow);
+                return proxyWindow?.document;
+              },
               set: () => {}
             });
           }
@@ -1811,9 +1896,13 @@
           }
         });
 
-        // 1. Override the native click method on anchors to catch programmatic a.click()
+        // Catch file input activation before the native file picker can open.
         const nativeElementClick = HTMLElement.prototype.click;
         HTMLElement.prototype.click = function() {
+          if (this.tagName === 'INPUT' && String(this.getAttribute('type') || '').toLowerCase() === 'file') {
+            if (!this.disabled) void sendAsyncEvent('upload',this).catch(() => {});
+            return;
+          }
           if (this.tagName === 'A') {
             const href = this.getAttribute('href');
             if (href) {
@@ -1847,6 +1936,13 @@
         };
 
         addEventListener(document, 'click', function(e) {
+          const fileInput = e.target.closest('input[type=\"file\"]');
+          if (fileInput) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!fileInput.disabled) void sendAsyncEvent('upload',fileInput).catch(() => {});
+            return;
+          }
           const link = e.target.closest('a');
           if (link && link.dataset.isInternalDownload) {
             return; 
@@ -1875,8 +1971,8 @@
                 e.preventDefault();
                 e.stopPropagation();
                 try {
-                  await sendAsyncEvent('download',resolved);
-                } catch(e) { console.error('Download via fetch failed:', err); };
+                  await sendAsyncEvent('download',resolved,anchor.getAttribute('download') || '');
+                } catch(e) { console.error('Download via fetch failed:', e); };
               })();
               const target = (anchor.getAttribute('target') || '').toLowerCase();
               if (target === '_top') {
@@ -2668,7 +2764,7 @@
         const oldGetEntriesByType = performance.getEntriesByType;
         performance.getEntriesByType = function() {
           var value = oldGetEntriesByType.apply(this,arguments);
-          for (var i in value) value[i].name = CURRENT_PAGE_URL;
+          for (var i in value) value[i].name = DOCUMENT_URL;
           return value;
         }
 
@@ -2814,21 +2910,21 @@
         // history & location
         const virtualLocation = Object.create(Location.prototype);
         Object.assign(virtualLocation, {
-          href: CURRENT_PAGE_URL,
+          href: DOCUMENT_URL,
           origin: BASE_ORIGIN,
-          protocol: new URL(CURRENT_PAGE_URL).protocol,
-          host: new URL(CURRENT_PAGE_URL).host,
-          hostname: new URL(CURRENT_PAGE_URL).hostname,
-          pathname: new URL(CURRENT_PAGE_URL).pathname,
-          search: new URL(CURRENT_PAGE_URL).search,
-          hash: new URL(CURRENT_PAGE_URL).hash,
+          protocol: new URL(DOCUMENT_URL).protocol,
+          host: new URL(DOCUMENT_URL).host,
+          hostname: new URL(DOCUMENT_URL).hostname,
+          pathname: new URL(DOCUMENT_URL).pathname,
+          search: new URL(DOCUMENT_URL).search,
+          hash: new URL(DOCUMENT_URL).hash,
           assign: function(newUrl) { sendEvent('navigate', newUrl, true); },
           replace: function(newUrl) { sendEvent('navigate', newUrl, false); },
-          reload: function() { sendEvent('navigate', CURRENT_PAGE_URL, false); },
-          toString: function() { return CURRENT_PAGE_URL; }
+          reload: function() { sendEvent('navigate', DOCUMENT_URL, false); },
+          toString: function() { return DOCUMENT_URL; }
         });
         Object.defineProperty(virtualLocation, 'href', {
-          get: function() { return CURRENT_PAGE_URL; },
+          get: function() { return DOCUMENT_URL; },
           set: function(u) { return this.assign(u); }
         });
         Object.defineProperty(virtualLocation, Symbol.toStringTag, {
@@ -2845,7 +2941,7 @@
         });
 
         Object.defineProperty(PerformanceNavigationTiming.prototype, 'name', {
-          value: CURRENT_PAGE_URL,
+          value: DOCUMENT_URL,
           enumerable: true,
           configurable: true
         });
@@ -2881,8 +2977,9 @@
             // Force document.location to return the virtual location object
             if (prop === 'location') return virtualLocation;
             if (prop === 'referrer') return '';
-            if (prop === 'documentURI') return CURRENT_PAGE_URL;
-            if (prop === 'URL') return CURRENT_PAGE_URL;
+            if (prop === 'documentURI') return DOCUMENT_URL;
+            if (prop === 'URL') return DOCUMENT_URL;
+            if (prop === 'defaultView') return windowProxy;
             if (prop === 'domain') return new URL(CURRENT_PAGE_URL).hostname;
 
             // --- Intercept document.open() to prevent context wiping ---
@@ -3029,26 +3126,49 @@
             console.log("Failed to clone:", prop);
           }
         });
-        const windowProxy = new Proxy(windowTarget, {
+        let windowProxy;
+        function getTopPage() {
+          let current = pageEmulator;
+          const seen = new Set();
+          while (current?.parent && current.parent !== false && !seen.has(current)) {
+            seen.add(current);
+            current = current.parent;
+          }
+          return current || pageEmulator;
+        }
+        function getChildPage(key) {
+          const children = pageEmulator?.children || [];
+          if (typeof key === 'number' || (typeof key === 'string' && /^\d+$/.test(key))) {
+            return children[Number(key)] || null;
+          }
+          if (typeof key === 'string') {
+            return children.find(child => child?.iframe?.name === key || child?.iframe?.id === key) || null;
+          }
+          return null;
+        }
+        windowProxy = new Proxy(windowTarget, {
           has(target, prop) {
-            if (prop === 'location' || prop === 'document' || ['window','parent','top','globalThis','self'].includes(prop)) {
+            if (prop === 'location' || prop === 'document' || ['window','parent','top','globalThis','self','frames'].includes(prop)) {
               return true;
             }
+            if (typeof prop === 'string' && /^\d+$/.test(prop)) return Number(prop) < (pageEmulator?.children || []).length;
             return Reflect.has(target, prop) || Reflect.has(window, prop);
           },
           get(target, prop) {
             if (prop === Symbol.unscopables) return undefined;
             if (prop === 'location') return virtualLocation;
             if (prop === 'document') return documentProxy;
-            if (['window','globalThis','self'].includes(prop)) return windowProxy;
-            if (prop === 'top') {
-              let topWindowProxy = windowProxy;
-              while (topWindowProxy.parent !== topWindowProxy) topWindowProxy = topWindowProxy.parent;
-              return topWindowProxy;
+            if (['window','globalThis','self','frames'].includes(prop)) return windowProxy;
+            if (prop === 'length') return (pageEmulator?.children || []).length;
+            if (prop === 'top') return getTopPage().__windowProxy || windowProxy;
+            if (prop === 'parent') return pageEmulator?.parent && pageEmulator.parent !== false && pageEmulator.parent.__windowProxy ? pageEmulator.parent.__windowProxy : windowProxy;
+            if (typeof prop === 'string' && /^\d+$/.test(prop)) {
+              const child = getChildPage(prop);
+              return child?.__windowProxy || undefined;
             }
-            if (prop === 'parent') {
-              if (window.parent.__windowProxy) return window.parent.__windowProxy;
-              return windowProxy;
+            if (typeof prop === 'string') {
+              const child = getChildPage(prop);
+              if (child?.__windowProxy) return child.__windowProxy;
             }
             const value = Reflect.get(window, prop, window);
             if (isNativeFunction(value) && !value.prototype) {
@@ -3155,8 +3275,7 @@
         };
 
         window.__windowProxy = windowProxy;
-        window.__trueWindow = window;
-        window.__trueDocument = document;
+        pageEmulator.__windowProxy = windowProxy;
         window.__rawReflectApply = rawReflectApply;
       })();
 
@@ -3219,7 +3338,14 @@
         }, __thisArg, [__windowProxy, __windowProxy, __windowProxy, __windowProxy.parent, __windowProxy.top, __windowProxy.location, __windowProxy.document]);
       };
     }
-    return `(${interceptorFunction.toString()})("${source_origin}","${source_url}");//# sourceURL=${name}`;
+    return `(${interceptorFunction.toString()})("${source_origin}","${base_url || source_url}","${source_url}");//# sourceURL=${name}`;
+  }
+
+  function createPageNetwork(network) {
+    if (!(network instanceof Network)) return network || new Network();
+    var pageNetwork = new Network();
+    pageNetwork.endpoints = network.endpoints;
+    return pageNetwork;
   }
 
   class PageEmulator {
@@ -3246,7 +3372,7 @@
 
       this.history = history || [];
       this.historyIndex = -1;
-      this.network = network || new Network();
+      this.network = createPageNetwork(network);
 
       this.parent = false;
       this.children = [];
@@ -3261,8 +3387,15 @@
     }
 
     addChild(page) {
+      if (!page || page === this) return page;
+      if (page.parent === this && this.children.includes(page)) return page;
+      if (page.parent && page.parent !== false && Array.isArray(page.parent.children)) {
+        const oldIndex = page.parent.children.indexOf(page);
+        if (oldIndex >= 0) page.parent.children.splice(oldIndex, 1);
+      }
       page.parent = this;
-      this.children.push(page);
+      if (!this.children.includes(page)) this.children.push(page);
+      return page;
     }
 
     async setDocument(rawHtml, processHtml = true) {
@@ -3315,15 +3448,14 @@
     }
 
     interceptEvent(event, callback, options) {
-      // event could be 'contextmenu'
-      // event could be 'download'
-      // event could be 'navigate'
-      // etc...
       this.eventInterceptors[event] = this.eventInterceptors[event] || [];
-      this.eventInterceptors[event].push({
-        callback,
-        options
-      });
+      this.eventInterceptors[event].push({callback,options});
+      return callback;
+    }
+    removeEventListener(event, callback) {
+      var list = this.eventInterceptors[event];
+      if (!list) return;
+      this.eventInterceptors[event] = list.filter(item => item.callback !== callback);
     }
 
     addEndpoint(endpoint) {

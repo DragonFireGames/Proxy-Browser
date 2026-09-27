@@ -113,11 +113,12 @@
     </div>
 
     <!-- SECTION 5: Embedded Inline Testing Environment (Iframe) -->
-    <div class="section">
+    <div class="section" id="frame-tester">
         <h2>5. Nested Testing Sandbox (Iframe)</h2>
         <p>Below is an inline frame containing a mirrored test harness. Use it to observe how <b>Frame-Breaking</b> buttons behave when trapped inside a sub-frame.</p>
         
         <iframe id="sandbox-iframe" title="Sandbox Testing Iframe"></iframe>
+        <iframe id="sandbox-iframe-2" title="Sandbox Testing Iframe"></iframe>
     </div>
 
     <script>
@@ -142,7 +143,6 @@
         }
 
         // Self-populate the iframe with a miniature version of this suite for quick testing
-        const frame = document.getElementById('sandbox-iframe');
         var srcdoc = `
             <!DOCTYPE html>
             <html>
@@ -162,11 +162,29 @@
             </body>
             </html>
         `;
+        const frame = document.getElementById('sandbox-iframe');
         // frame.srcdoc = srcdoc;
         const iframeDoc = frame.contentWindow.document;
         iframeDoc.open();
         iframeDoc.write(srcdoc);
         iframeDoc.close();
+
+        const frame2 = document.getElementById('sandbox-iframe-2');
+        frame2.srcdoc = srcdoc;
+
+        const framediv = document.getElementById('frame-tester');
+
+        const frame3 = document.createElement('iframe');
+        frame3.srcdoc = srcdoc;
+        framediv.appendChild(frame3);
+
+        const frame4 = document.createElement('iframe');
+        framediv.appendChild(frame4);
+        const iframeDoc2 = frame4.contentWindow.document;
+        iframeDoc2.open();
+        iframeDoc2.write(srcdoc);
+        iframeDoc2.close();
+
     </script>
 </body>
 </html>
