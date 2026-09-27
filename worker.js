@@ -1,6 +1,45 @@
+// ============================================================
+// CONFIGURATION
+// ============================================================
+
+// Put your Corsfix API key here.
+// Example: "cfx_12345678"
+//
+// You can leave this as "" if you are using Corsfix
+// without an API key.
+const CORSFIX_API_KEY = "cfx_284691905b839aba360c3f3d93eb0ad7";
+
+// Enable/disable Corsfix fallback.
+const USE_CORSFIX_FALLBACK = true;
+
+// Corsfix endpoint.
+const CORSFIX_PROXY = "https://proxy.corsfix.com/?";
+
+// HTTP statuses where we should try Corsfix instead.
+const CORSFIX_RETRY_STATUSES = new Set([
+  403,
+  408,
+  419,
+  429,
+  500,
+  502,
+  503,
+  504
+]);
+
+
+// ============================================================
+// WORKER
+// ============================================================
 
 export default {
+
   async fetch(request) {
+
+    // ========================================================
+    // CORS HEADERS
+    // ========================================================
+
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods":
@@ -10,9 +49,10 @@ export default {
       "Access-Control-Max-Age": "86400"
     };
 
-    // ============================================================
+
+    // ========================================================
     // CORS PREFLIGHT
-    // ============================================================
+    // ========================================================
 
     if (request.method === "OPTIONS") {
       return new Response(null, {
@@ -21,39 +61,54 @@ export default {
       });
     }
 
-    // ============================================================
+
+    // ========================================================
     // 1. GET AND DECODE TARGET URL
-    // ============================================================
+    // ========================================================
 
     const url = new URL(request.url);
 
     let targetUrl = url.searchParams.get("url");
-    const base64Param = url.searchParams.get("base64_url");
+
+    const base64Param =
+      url.searchParams.get("base64_url");
+
+
+    // --------------------------------------------------------
+    // Decode URL-safe Base64
+    // --------------------------------------------------------
 
     if (!targetUrl && base64Param) {
+
       try {
-        // Undo URL-safe Base64 replacements
+
         let normalizedBase64 = base64Param
           .replace(/-/g, "+")
           .replace(/_/g, "/");
+
 
         // Restore Base64 padding
         while (normalizedBase64.length % 4) {
           normalizedBase64 += "=";
         }
 
-        // Decode Base64
-        const decodedBinary = atob(normalizedBase64);
 
-        // Safely decode UTF-8
+        // Decode Base64
+        const decodedBinary =
+          atob(normalizedBase64);
+
+
+        // Decode UTF-8 safely
         const bytes = Uint8Array.from(
           decodedBinary,
           c => c.charCodeAt(0)
         );
 
-        targetUrl = new TextDecoder().decode(bytes);
+        targetUrl =
+          new TextDecoder().decode(bytes);
 
       } catch (e) {
+
         return new Response(
           "Invalid base64 encoding",
           {
@@ -64,7 +119,13 @@ export default {
       }
     }
 
+
+    // ========================================================
+    // TARGET URL REQUIRED
+    // ========================================================
+
     if (!targetUrl) {
+
       return new Response(
         "Missing url or base64_url parameter",
         {
@@ -74,19 +135,22 @@ export default {
       );
     }
 
-    // ============================================================
+
+    // ========================================================
     // 2. VALIDATE TARGET URL
-    // ============================================================
+    // ========================================================
 
     let target;
 
     try {
+
       target = new URL(targetUrl);
 
       if (
         target.protocol !== "http:" &&
         target.protocol !== "https:"
       ) {
+
         return new Response(
           "Invalid target protocol",
           {
@@ -97,6 +161,7 @@ export default {
       }
 
     } catch (e) {
+
       return new Response(
         "Invalid target URL",
         {
@@ -106,19 +171,23 @@ export default {
       );
     }
 
-    // ============================================================
+
+    // ========================================================
     // 3. CLONE INCOMING REQUEST HEADERS
-    // ============================================================
+    // ========================================================
 
     const newHeaders = new Headers(request.headers);
-
-    // ============================================================
-    // 4. REMOVE HEADERS THAT SHOULD NOT BE FORWARDED
-    // ============================================================
 
     [
       "host",
       "origin",
+      "referer",
+
+      // Browser request context
+      "sec-fetch-site",
+      "sec-fetch-mode",
+      "sec-fetch-dest",
+      "sec-fetch-user",
 
       // Cloudflare
       "cf-connecting-ip",
@@ -127,17 +196,11 @@ export default {
       "cf-ipcountry",
       "cf-worker",
 
-      // Proxy headers
+      // Proxy chain
       "x-forwarded-for",
       "x-forwarded-proto",
       "x-real-ip"
-    ].forEach(header => {
-      newHeaders.delete(header);
-    });
-
-    // ============================================================
-    // 5. FORCE A REALISTIC USER-AGENT IF MISSING
-    // ============================================================
+    ].forEach(h => newHeaders.delete(h));
 
     if (!newHeaders.has("user-agent")) {
       newHeaders.set(
@@ -148,27 +211,45 @@ export default {
       );
     }
 
-    // ============================================================
-    // 6. WEBSOCKET INTERCEPTION
-    // ============================================================
+
+    // ========================================================
+    // 5. USER AGENT
+    // ========================================================
+
+    if (!newHeaders.has("user-agent")) {
+
+      newHeaders.set(
+        "user-agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/141.0.0.0 Safari/537.36"
+      );
+    }
+
+
+    // ========================================================
+    // 6. WEBSOCKET
+    // ========================================================
 
     const isWebSocket =
       request.headers.get("Upgrade")?.toLowerCase() ===
       "websocket";
 
+
     if (isWebSocket) {
+
       try {
-        /*
-         * Cloudflare handles the WebSocket tunnel when the
-         * Upgrade request is forwarded through fetch().
-         */
 
         return await fetch(target.toString(), {
+
           method: request.method,
+
           headers: newHeaders
+
         });
 
       } catch (err) {
+
         return new Response(
           `WebSocket Proxy Error: ${err.message}`,
           {
@@ -179,36 +260,185 @@ export default {
       }
     }
 
-    // ============================================================
-    // 7. NORMAL HTTP REQUEST
-    // ============================================================
+
+    // ========================================================
+    // 7. PREPARE NORMAL HTTP REQUEST
+    // ========================================================
 
     const init = {
+
       method: request.method,
+
       headers: newHeaders,
+
       redirect: "follow"
     };
 
-    // Forward POST/PUT/PATCH/DELETE bodies
+
+    // --------------------------------------------------------
+    // Forward request body
+    // --------------------------------------------------------
+
     if (
       request.method !== "GET" &&
       request.method !== "HEAD"
     ) {
-      init.body = await request.arrayBuffer();
+
+      init.body =
+        await request.arrayBuffer();
     }
 
-    // ============================================================
-    // 8. FETCH TARGET
-    // ============================================================
+
+    // ========================================================
+    // 8. DIRECT TARGET FETCH
+    // ========================================================
 
     let response;
 
+    let directFetchFailed = false;
+
+
     try {
-      response = await fetch(target.toString(), init);
+
+      response =
+        await fetch(target.toString(), init);
 
     } catch (err) {
+
+      directFetchFailed = true;
+
+      response = null;
+    }
+
+
+    // ========================================================
+    // 9. CORSFIX FALLBACK
+    // ========================================================
+
+    const shouldUseCorsfix =
+      USE_CORSFIX_FALLBACK &&
+      (
+        directFetchFailed ||
+        (
+          response &&
+          CORSFIX_RETRY_STATUSES.has(
+            response.status
+          )
+        )
+      );
+
+
+    if (shouldUseCorsfix) {
+
+      try {
+
+        // ----------------------------------------------------
+        // Corsfix URL
+        //
+        // Example:
+        //
+        // https://proxy.corsfix.com/?https://example.com
+        // ----------------------------------------------------
+
+        const corsfixUrl =
+          CORSFIX_PROXY +
+          target.toString();
+
+
+        // ----------------------------------------------------
+        // IMPORTANT:
+        //
+        // We need a fresh body because the original
+        // request body may already have been consumed
+        // by the direct fetch.
+        // ----------------------------------------------------
+
+        let corsfixBody = undefined;
+
+        if (
+          request.method !== "GET" &&
+          request.method !== "HEAD"
+        ) {
+
+          corsfixBody =
+            await request.clone().arrayBuffer();
+        }
+
+
+        // ----------------------------------------------------
+        // Build Corsfix headers
+        // ----------------------------------------------------
+
+        const corsfixHeaders =
+          new Headers(newHeaders);
+
+
+        // Add Corsfix API key if configured.
+        if (CORSFIX_API_KEY) {
+
+          corsfixHeaders.set(
+            "x-corsfix-key",
+            CORSFIX_API_KEY
+          );
+        }
+
+
+        // ----------------------------------------------------
+        // Fetch through Corsfix
+        // ----------------------------------------------------
+
+        const corsfixResponse =
+          await fetch(corsfixUrl, {
+
+            method: request.method,
+
+            headers: corsfixHeaders,
+
+            body: corsfixBody,
+
+            redirect: "follow"
+          });
+
+          console.log(corsfixUrl);
+
+
+        // Use Corsfix response if it worked,
+        // or if the direct request never worked.
+        if (
+          corsfixResponse.ok ||
+          directFetchFailed
+        ) {
+
+          response = corsfixResponse;
+        }
+
+      } catch (err) {
+
+        // If Corsfix itself fails and we have a
+        // direct response, keep the direct response.
+
+        if (!response) {
+
+          return new Response(
+            `Proxy Error: ${err.message}`,
+            {
+              status: 502,
+              headers: corsHeaders
+            }
+          );
+        }
+      }
+    }
+
+
+    // ========================================================
+    // 10. IF NOTHING WORKED
+    // ========================================================
+
+    if (!response) {
+
       return new Response(
-        `Proxy Error: ${err.message}`,
+        "Proxy request failed",
         {
           status: 502,
           headers: corsHeaders
@@ -216,46 +446,82 @@ export default {
       );
     }
 
-    // ============================================================
-    // 9. COPY RESPONSE HEADERS
-    //    BUT REMOVE UPSTREAM CORS HEADERS
-    // ============================================================
 
-    const responseHeaders = new Headers();
+    // ========================================================
+    // 11. COPY RESPONSE HEADERS
+    // ========================================================
+
+    const responseHeaders =
+      new Headers();
+
 
     for (const [key, value] of response.headers) {
-      const lower = key.toLowerCase();
+
+      const lower =
+        key.toLowerCase();
+
+
+      // Remove upstream CORS headers.
+      // We provide our own below.
 
       if (
-        lower === "access-control-allow-origin" ||
-        lower === "access-control-allow-credentials" ||
-        lower === "access-control-allow-methods" ||
-        lower === "access-control-allow-headers" ||
-        lower === "access-control-expose-headers" ||
-        lower === "access-control-max-age"
+        lower ===
+          "access-control-allow-origin" ||
+
+        lower ===
+          "access-control-allow-credentials" ||
+
+        lower ===
+          "access-control-allow-methods" ||
+
+        lower ===
+          "access-control-allow-headers" ||
+
+        lower ===
+          "access-control-expose-headers" ||
+
+        lower ===
+          "access-control-max-age"
       ) {
+
         continue;
       }
 
-      responseHeaders.set(key, value);
+
+      responseHeaders.set(
+        key,
+        value
+      );
     }
 
-    // ============================================================
-    // 10. ADD OUR OWN CORS HEADERS
-    // ============================================================
 
-    for (const [key, value] of Object.entries(corsHeaders)) {
-      responseHeaders.set(key, value);
+    // ========================================================
+    // 12. ADD OUR CORS HEADERS
+    // ========================================================
+
+    for (
+      const [key, value]
+      of Object.entries(corsHeaders)
+    ) {
+
+      responseHeaders.set(
+        key,
+        value
+      );
     }
 
-    // ============================================================
-    // 11. RETURN ORIGINAL RESPONSE
-    // ============================================================
 
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: responseHeaders
-    });
+    // ========================================================
+    // 13. RETURN RESPONSE
+    // ========================================================
+
+    return new Response(
+      response.body,
+      {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders
+      }
+    );
   }
 };

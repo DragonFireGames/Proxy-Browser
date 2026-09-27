@@ -119,6 +119,8 @@
         
         <iframe id="sandbox-iframe" title="Sandbox Testing Iframe"></iframe>
         <iframe id="sandbox-iframe-2" title="Sandbox Testing Iframe"></iframe>
+
+        <iframe id="sandbox-iframe-3" src="https://example.com"></iframe>
     </div>
 
     <script>
@@ -184,6 +186,19 @@
         iframeDoc2.open();
         iframeDoc2.write(srcdoc);
         iframeDoc2.close();
+
+        const frame5 = document.getElementById('sandbox-iframe-3');
+        frame5.src = "https://example.com";
+
+        const frame6 = document.createElement('iframe');
+        frame6.src = "https://example.com";
+        framediv.appendChild(frame6);
+
+        var btn = document.createElement('button');
+        framediv.appendChild(btn);
+        btn.onclick = function(){
+            frame6.src = "https://untitled-project.com/";
+        }
 
     </script>
 </body>

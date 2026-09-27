@@ -962,44 +962,17 @@ function createNewPage(iframe,parentPage=null) {
     page.network.addEventListener('requeststart',function(){ updateLoadingProgress(30); });
     page.network.addEventListener('requestend',function(){ updateLoadingProgress(80); });
   }
+
   page.interceptEvent('iframe-create',function(obj){
     if (obj.iframe.pageEmulator) return obj.iframe.pageEmulator;
-
-    const pageId = obj.iframe.getAttribute?.('data-page-id');
-    const knownPage = pageId ? window.__pageRegistry?.[pageId] : null;
-    if (knownPage && (knownPage.parent === page || knownPage.iframe === obj.iframe)) {
-      var page2 = knownPage;
-      page2.iframe = obj.iframe;
-      obj.iframe.pageEmulator = page2;
-      obj.iframe.usefulHelpers = window.__pageRegistry.__usefulHelpers;
-      if (page2.tab) {
-        page2.tab.iframe = obj.iframe;
-        page2.tab.frameElement = obj.iframe;
-      }
-      if (obj.iframe?.addEventListener) {
-        obj.iframe.addEventListener('load',() => {
-          if (page2.tab) {
-            try { page2.tab.url = page2.location?.url || page2.tab.url; } catch(e) {}
-          }
-        });
-      }
-      return page2;
-    }
 
     var page2 = createNewPage(obj.iframe,page);
     page.addChild(page2);
 
-    if (!obj.src && !obj.is_doc) {
-      page2.setLocation(page.location?.url || 'http://localhost:3000/', page.location?.origin || 'http://localhost:3000');
-    }
+    page2.setLocation('about:blank',page.location?.origin || 'http://localhost:3000');
 
     var parentTab = page.tab || null;
     var frameId = 'frame-' + Math.random().toString(36).slice(2,9);
-    var initialUrl = 'about:blank';
-    if (obj.is_doc) initialUrl = 'about:srcdoc';
-    else if (obj.src) {
-      try { initialUrl = new URL(obj.src, page.location?.url || page.location?.origin || 'http://localhost:3000/').href; } catch(e) { initialUrl = obj.src; }
-    } else if (page.location?.url) initialUrl = page.location.url;
 
     page2.tab = {
       id: frameId,
@@ -1008,47 +981,69 @@ function createNewPage(iframe,parentPage=null) {
       subframe: true,
       parentTab: parentTab,
       frameElement: obj.iframe,
-      url: initialUrl,
+      url: 'about:blank',
       title: 'iframe',
     };
 
-    if (obj.iframe?.addEventListener) {
-      obj.iframe.addEventListener('load',() => {
-        if (page2.tab) {
-          try { page2.tab.url = page2.location?.url || page2.tab.url; } catch(e) {}
-        }
-      });
-    }
+    obj.iframe.addEventListener('load',() => {
+      if (!page2.tab) return;
+      try {
+        page2.tab.url = page2.location?.url || page2.tab.url;
+      } catch(e) {}
+    });
 
     return page2;
   });
 
   page.interceptEvent('iframe',async function(obj){
-    var page2 = obj.iframe.pageEmulator || page.sendEvent('iframe-create',{iframe: obj.iframe, is_doc: obj.is_doc, src: obj.src});
-    if (!page2) return;
+    var page2 = obj.iframe.pageEmulator;
+
+    if (!page2) {
+      alert("Page not found!");
+      return;
+    }
 
     var navigationId = obj.navigationId;
+
     if (navigationId !== undefined && obj.iframe.__iframeNavigationId !== navigationId) return;
 
     if (obj.is_doc) {
-      page2.setLocation('about:srcdoc', page.location.origin);
+      page2.setLocation('about:srcdoc',page.location?.origin || 'http://localhost:3000');
       if (page2.tab) page2.tab.url = 'about:srcdoc';
+
       page2.rawDocument = String(obj.srcdoc || '');
+
       if (navigationId !== undefined && obj.iframe.__iframeNavigationId !== navigationId) return;
+
       await page2.setDocument(obj.srcdoc || '');
-    } else {
-      const targetUrl = obj.src ? new URL(obj.src, page.location?.url || page.location?.origin || 'http://localhost:3000/') : new URL(page.location?.url || 'http://localhost:3000/');
-      page2.setLocation(targetUrl.href, targetUrl.origin);
-      if (page2.tab) page2.tab.url = targetUrl.href;
-      const res = await page2.network.request(targetUrl.href, targetUrl.origin, {}, 'iframe');
-      if (navigationId !== undefined && obj.iframe.__iframeNavigationId !== navigationId) return;
-      if (res && res.ok) {
-        var rawHtml = await window.getDocumentContent(res, targetUrl.href, targetUrl.origin, obj);
-        if (navigationId !== undefined && obj.iframe.__iframeNavigationId !== navigationId) return;
-        page2.rawDocument = String(rawHtml || '');
-        await page2.setDocument(rawHtml);
-      }
+      return;
     }
+
+    if (!obj.src) return;
+
+    var baseUrl = page.location?.url || page.location?.origin || 'http://localhost:3000/';
+    var targetUrl;
+
+    try {
+      targetUrl = new URL(obj.src,baseUrl);
+    } catch(e) {
+      return;
+    }
+
+    page2.setLocation(targetUrl.href,targetUrl.origin);
+    if (page2.tab) page2.tab.url = targetUrl.href;
+
+    const res = await page2.network.request(targetUrl.href,targetUrl.origin,{},'iframe');
+
+    if (navigationId !== undefined && obj.iframe.__iframeNavigationId !== navigationId) return;
+    if (!res || !res.ok) return;
+
+    var rawHtml = await window.getDocumentContent(res,targetUrl.href,targetUrl.origin,obj);
+
+    if (navigationId !== undefined && obj.iframe.__iframeNavigationId !== navigationId) return;
+
+    page2.rawDocument = String(rawHtml || '');
+    await page2.setDocument(rawHtml);
   });
 
   page.interceptEvent('hidecontext',async function(){

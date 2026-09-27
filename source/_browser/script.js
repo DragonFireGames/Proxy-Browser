@@ -96,7 +96,7 @@ var staticEndpoint = new StaticEndpoint({
 });
 
 staticEndpoint.addEventListener('loaded',function(){
-  navigateTo(`${domain}/`);
+  //navigateTo(`${domain}/`);
 });
 
 browserNetwork.prependEndpoint(staticEndpoint);

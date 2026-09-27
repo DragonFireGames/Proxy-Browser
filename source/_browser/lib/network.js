@@ -40,10 +40,11 @@ class Network extends EventHandler {
   async _requestURL(url,baseOrigin,data,type) {
     const absoluteUrl = resolveNetworkURL(url, baseOrigin);
     const request = new Request(absoluteUrl, data);
-    return await this._requestObject(request,type);
+    return await this._requestObject(request,baseOrigin,type);
   }
-  async _requestObject(request,type) {
+  async _requestObject(request,baseOrigin,type) {
     request.__original_url = request.url;
+    if (baseOrigin) request.headers.set('Origin', baseOrigin);
     request.request_type = type;
     this.dispatchEvent('requeststart',request,type);
     const response = await this.searchEndpoints(async function(endp) {

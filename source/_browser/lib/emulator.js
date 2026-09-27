@@ -216,9 +216,6 @@
 
         page.sendEvent('iframe-create',{
           iframe: el,
-          src: src,
-          srcdoc: srcdoc,
-          is_doc: !src,
         });
 
         await page.sendAsyncEvent('iframe',{
@@ -1371,61 +1368,53 @@
         }
 
         // --- Nested Frame / Embed Interception ---
-        async function setupNestedFrame(frameEl) {
-          if (frameEl.__sandboxed) return;
+        async function setupNestedFrame(el) {
+          if (el.__sandboxed) return;
+          if (el.tagName.toLowerCase() !== 'iframe') return;
 
-          if (frameEl.tagName.toLowerCase() !== 'iframe') return;
+          el.__sandboxed = true;
+          el.__iframeNavigationId = (el.__iframeNavigationId || 0) + 1;
+          var navigationId = el.__iframeNavigationId;
 
-          frameEl.__sandboxed = true;
-          frameEl.__iframeNavigationId = (frameEl.__iframeNavigationId || 0) + 1;
-          const navigationId = frameEl.__iframeNavigationId;
+          if (!el.pageEmulator) {
+            const pageId = el.getAttribute('data-page-id');
+            const knownPage = pageId ? pageEmulator.__pageRegistry[pageId] : null;
 
-          const hasSrcDoc = frameEl.hasAttribute('data-raw-srcdoc') || frameEl.hasAttribute('srcdoc');
-          const hasRawSrc = frameEl.hasAttribute('data-raw-src') || frameEl.hasAttribute('src');
-          const currentSrcDoc = hasSrcDoc ? (frameEl.getAttribute('srcdoc') ?? frameEl.getAttribute('data-raw-srcdoc')) : null;
-          const rawSrc = hasRawSrc ? (frameEl.getAttribute('data-raw-src') ?? frameEl.getAttribute('src')) : null;
+            if (knownPage) {
+              knownPage.iframe = el;
+              el.pageEmulator = knownPage;
+              el.usefulHelpers = pageEmulator.__pageRegistry.__usefulHelpers;
 
-          if (hasSrcDoc) {
-            frameEl.removeAttribute("src");
-            frameEl.removeAttribute("srcdoc");
-            sendEvent('iframe-create',{
-              iframe: frameEl,
-              srcdoc: currentSrcDoc,
-              is_doc: true,
-            });
-            await sendAsyncEvent('iframe',{
-              iframe: frameEl,
-              srcdoc: currentSrcDoc,
-              is_doc: true,
-              navigationId,
-            });
-          } else if (hasRawSrc && rawSrc && !rawSrc.startsWith('javascript:')) {
-            frameEl.removeAttribute("src");
-            sendEvent('iframe-create',{
-              iframe: frameEl,
-              src: rawSrc,
-              is_doc: false,
-            });
-            await sendAsyncEvent('iframe',{
-              iframe: frameEl,
-              src: rawSrc,
-              is_doc: false,
-              navigationId,
-            });
-          } else {
-            frameEl.removeAttribute("src");
-            frameEl.removeAttribute("srcdoc");
-            sendEvent('iframe-create',{
-              iframe: frameEl,
-              is_doc: true,
-            });
-            await sendAsyncEvent('iframe',{
-              iframe: frameEl,
-              srcdoc: `<html><head></head><body></body></html>`,
-              is_doc: true,
-              navigationId,
-            });
+              if (knownPage.tab) {
+                knownPage.tab.iframe = el;
+                knownPage.tab.frameElement = el;
+              }
+            } else {
+              sendEvent('iframe-create',{
+                iframe: el,
+              });
+            }
           }
+
+          var hasSrcDoc = el.hasAttribute('data-raw-srcdoc') || el.hasAttribute('srcdoc');
+          var hasRawSrc = el.hasAttribute('data-raw-src') || el.hasAttribute('src');
+
+          var srcdoc = hasSrcDoc ? (el.getAttribute('srcdoc') ?? el.getAttribute('data-raw-srcdoc')) : null;
+          var src = hasRawSrc ? (el.getAttribute('data-raw-src') ?? el.getAttribute('src')) : null;
+
+          el.removeAttribute("srcdoc");
+          el.removeAttribute("src");
+          if (!hasSrcDoc && !hasRawSrc) srcdoc = `<html><head></head><body></body></html>`;
+
+          await sendAsyncEvent('iframe',{
+            iframe: el,
+            src: src,
+            srcdoc: srcdoc,
+            is_doc: !src,
+            navigationId: navigationId,
+          });
+
+          return null;
         }// else if (frameEl.tagName.toLowerCase() === 'embed') {
           //   const rawSrc = frameEl.getAttribute('src') || frameEl.getAttribute('data-raw-src');
           //   if (!rawSrc) return;
@@ -1684,23 +1673,24 @@
               if (elem.pageEmulator) return elem.pageEmulator;
 
               const pageId = elem.getAttribute('data-page-id');
-              if (pageId && window.__pageRegistry?.[pageId]) {
-                const knownPage = window.__pageRegistry[pageId];
+              const knownPage = pageId ? pageEmulator.__pageRegistry?.[pageId] : null;
+
+              if (knownPage) {
                 knownPage.iframe = elem;
                 elem.pageEmulator = knownPage;
-                elem.usefulHelpers = window.__pageRegistry.__usefulHelpers;
+                elem.usefulHelpers = pageEmulator.__pageRegistry.__usefulHelpers;
+
                 if (knownPage.tab) {
                   knownPage.tab.iframe = elem;
                   knownPage.tab.frameElement = elem;
                 }
+
                 return knownPage;
               }
 
               return sendEvent('iframe-create',{iframe: elem}) || elem.pageEmulator || null;
             };
 
-            // A newly-created dynamic iframe has no data-page-id yet. Claim it now,
-            // while preserving the registry-rebind path for preprocessed/static iframes.
             if (!elem.getAttribute('data-page-id')) ensureFrameEmulator();
 
             Object.defineProperty(elem,'contentWindow',{
@@ -1711,6 +1701,7 @@
               },
               set: () => {}
             });
+
             Object.defineProperty(elem,'contentDocument',{
               get: () => {
                 ensureFrameEmulator();
@@ -1750,6 +1741,7 @@
                 this.__sandboxed = false;
                 var res = oldSetAttribute.call(this, prop, value);
                 setupNestedFrame(this);
+                this.__processing_attr = false;
                 return res;
               }
 
@@ -3352,6 +3344,7 @@
     constructor(iframe, options = {}) {
       this.id = Math.random().toString(36).substring(2);
       window.__pageRegistry[this.id] = this;
+      this.__pageRegistry = window.__pageRegistry;
 
       if (iframe.pageEmulator) throw new Error("iframe already has an emulator");
 
